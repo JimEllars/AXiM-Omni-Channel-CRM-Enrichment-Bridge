@@ -12,47 +12,66 @@ import RecoveryCenter from './components/RecoveryCenter';
 import SettingsView from './components/SettingsView';
 import ConfigView from './components/ConfigView';
 import SafeIcon from './common/SafeIcon';
-import { storage } from './utils/storage';
+import { logService } from './services/logService';
+import { configService } from './services/configService';
 import { FiCode, FiActivity, FiLayout, FiShield, FiRefreshCw, FiSettings, FiShuffle, FiDatabase } from 'react-icons/fi';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [logs, setLogs] = useState([]);
-  const [activeRules, setActiveRules] = useState(storage.get('pipeline_rules', {}));
-  const [stats, setStats] = useState(storage.get('stats', { total: 242, passed: 210, dropped: 32 }));
+  const [activeRules, setActiveRules] = useState({});
+  const [stats, setStats] = useState({ total: 0, passed: 0, dropped: 0 });
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    storage.set('stats', stats);
-  }, [stats]);
-
-  useEffect(() => {
-    setLogs(storage.get('logs', []));
+    async function init() {
+      try {
+        const [savedLogs, savedRules, savedStats] = await Promise.all([
+          logService.getAll(),
+          configService.get('pipeline_rules', { 'R-01': true, 'R-02': true, 'R-03': true, 'R-04': true }),
+          configService.get('stats', { total: 242, passed: 210, dropped: 32 })
+        ]);
+        setLogs(savedLogs);
+        setActiveRules(savedRules);
+        setStats(savedStats);
+      } catch (err) {
+        console.error("Initialization failed:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    init();
   }, []);
 
-  const addLog = (newLog) => {
-    const updated = [newLog, ...logs].slice(0, 50);
-    setLogs(updated);
-    storage.set('logs', updated);
-  };
-
-  const handlePipelineRun = (results) => {
+  const handlePipelineRun = async (results) => {
     const passedCount = results.filter(r => r.isValid).length;
     const droppedCount = results.length - passedCount;
 
-    setStats(prev => ({
-      total: prev.total + results.length,
-      passed: prev.passed + passedCount,
-      dropped: prev.dropped + droppedCount
-    }));
+    const newStats = {
+      total: stats.total + results.length,
+      passed: stats.passed + passedCount,
+      dropped: stats.dropped + droppedCount
+    };
 
-    addLog({
-      id: Date.now(),
+    setStats(newStats);
+    await configService.set('stats', newStats);
+
+    const logEntry = {
       type: passedCount > 0 ? 'SYNC_SUCCESS' : 'INGRESS_FAULT',
       severity: passedCount > 0 ? 'INFO' : 'HIGH',
       msg: `Sandbox execution: ${results.length} processed. Valid: ${passedCount}.`,
       time: new Date().toLocaleTimeString()
-    });
+    };
+
+    await logService.add(logEntry);
+    const updatedLogs = await logService.getAll();
+    setLogs(updatedLogs);
+  };
+
+  const handleRulesChange = async (newRules) => {
+    setActiveRules(newRules);
+    await configService.set('pipeline_rules', newRules);
   };
 
   const tabs = [
@@ -64,6 +83,15 @@ export default function App() {
     { id: 'telemetry', label: 'Logs', icon: FiActivity },
     { id: 'settings', label: 'Settings', icon: FiSettings },
   ];
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white font-sans">
+        <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-xs font-black tracking-widest uppercase animate-pulse">Initializing AXiM Core V8 Engine...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-300 font-sans selection:bg-blue-500/30">
@@ -78,7 +106,7 @@ export default function App() {
             <div className="flex items-center gap-4 mt-1">
               <span className="text-slate-500 text-[10px] font-bold uppercase flex items-center gap-2 tracking-[0.2em]">
                 <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.8)] animate-pulse"></div>
-                SYSTEM_MODE: PRODUCTION
+                SYSTEM_MODE: CLOUD_SHEETS_ACTIVE
               </span>
             </div>
           </div>
@@ -119,7 +147,7 @@ export default function App() {
             {activeTab === 'orchestrator' && (
               <div className="space-y-8">
                 <PipelineDesigner />
-                <RuleManifest onRulesChange={setActiveRules} />
+                <RuleManifest activeRules={activeRules} onRulesChange={handleRulesChange} />
                 <ConfigView />
               </div>
             )}
