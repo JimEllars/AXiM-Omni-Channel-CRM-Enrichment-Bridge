@@ -1,0 +1,11 @@
+name = "omni-crm-bridge"
+main = "src/index.js"
+compatibility_date = "2024-03-01"
+
+# KV Namespace Binding for Deduplication
+kv_namespaces = [
+  { binding = "LEAD_KV", id = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", preview_id = "YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY" }
+]
+
+# Note: Secrets like AXIM_INTERNAL_KEY and ALBATO_WEBHOOK_URL 
+# should be added via `wrangler secret put <KEY_NAME>`
