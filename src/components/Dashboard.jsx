@@ -6,10 +6,10 @@ import { motion } from 'framer-motion';
 
 export default function Dashboard({ stats }) {
   const cards = [
-    { title: 'Total Ingress', value: stats.total, icon: FiUsers, color: 'text-blue-400', bg: 'bg-blue-400/10' },
-    { title: 'Cleansed & Routed', value: stats.passed, icon: FiFilter, color: 'text-emerald-400', bg: 'bg-emerald-400/10' },
-    { title: 'Filtered/Dropped', value: stats.dropped, icon: FiAlertTriangle, color: 'text-amber-400', bg: 'bg-amber-400/10' },
-    { title: 'Avg Latency', value: '42ms', icon: FiZap, color: 'text-purple-400', bg: 'bg-purple-400/10' },
+    { title: 'Total Ingress', value: stats.total, icon: FiUsers, color: 'text-blue-400', bg: 'bg-blue-400/10', trend: '+12%' },
+    { title: 'Cleansed & Routed', value: stats.passed, icon: FiFilter, color: 'text-emerald-400', bg: 'bg-emerald-400/10', trend: '+18%' },
+    { title: 'Filtered/Dropped', value: stats.dropped, icon: FiAlertTriangle, color: 'text-amber-400', bg: 'bg-amber-400/10', trend: '-2%' },
+    { title: 'Avg Latency', value: '42ms', icon: FiZap, color: 'text-purple-400', bg: 'bg-purple-400/10', trend: 'STABLE' },
   ];
 
   return (
@@ -17,40 +17,66 @@ export default function Dashboard({ stats }) {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {cards.map((card, i) => (
           <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={{ opacity: 0, y: 20 }} 
+            animate={{ opacity: 1, y: 0 }} 
             transition={{ delay: i * 0.1 }}
             key={card.title} 
-            className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-sm hover:border-slate-700 transition-colors"
+            className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl shadow-lg hover:border-slate-700 hover:bg-slate-900 transition-all group"
           >
-            <div className="flex items-center justify-between mb-3">
-              <div className={`p-2 rounded-lg ${card.bg}`}>
+            <div className="flex items-center justify-between mb-4">
+              <div className={`p-3 rounded-xl ${card.bg} group-hover:scale-110 transition-transform`}>
                 <SafeIcon icon={card.icon} className={`text-xl ${card.color}`} />
               </div>
-              <SafeIcon icon={FiTrendingUp} className="text-slate-600 text-xs" />
+              <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${card.trend.startsWith('+') ? 'text-emerald-400 border-emerald-400/20 bg-emerald-400/5' : 'text-slate-500 border-slate-800'}`}>
+                {card.trend}
+              </span>
             </div>
-            <p className="text-slate-500 text-xs font-medium uppercase tracking-wider">{card.title}</p>
-            <h4 className="text-2xl font-bold text-white mt-1">{card.value}</h4>
+            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1">{card.title}</p>
+            <h4 className="text-3xl font-black text-white italic tracking-tighter">{card.value.toLocaleString()}</h4>
           </motion.div>
         ))}
       </div>
 
-      <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-white font-medium flex items-center gap-2">
-            <SafeIcon icon={FiActivity} className="text-blue-400" />
-            Lead Velocity Timeline
-          </h3>
-          <div className="flex gap-2">
-            <span className="flex items-center gap-1.5 text-[10px] text-slate-500 font-bold uppercase">
-              <div className="w-2 h-2 rounded-full bg-blue-500"></div> Ingress
-            </span>
-            <span className="flex items-center gap-1.5 text-[10px] text-slate-500 font-bold uppercase">
-              <div className="w-2 h-2 rounded-full bg-emerald-500"></div> Egress
-            </span>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-slate-900/50 border border-slate-800 rounded-2xl p-8 shadow-2xl">
+          <div className="flex justify-between items-center mb-8">
+            <div>
+              <h3 className="text-white font-bold flex items-center gap-3 text-lg uppercase italic tracking-tighter">
+                <SafeIcon icon={FiActivity} className="text-blue-400" />
+                Lead Velocity Timeline
+              </h3>
+              <p className="text-slate-500 text-[10px] uppercase font-black tracking-widest mt-1">Real-time Ingress/Egress Parity</p>
+            </div>
+            <div className="flex gap-4">
+              <span className="flex items-center gap-2 text-[9px] text-slate-400 font-black uppercase tracking-widest">
+                <div className="w-2 h-2 rounded-full bg-blue-500"></div> Ingress
+              </span>
+              <span className="flex items-center gap-2 text-[9px] text-slate-400 font-black uppercase tracking-widest">
+                <div className="w-2 h-2 rounded-full bg-emerald-500"></div> Egress
+              </span>
+            </div>
           </div>
+          <AnalyticsChart />
         </div>
-        <AnalyticsChart />
+        
+        <div className="bg-gradient-to-br from-blue-600/10 to-indigo-600/10 border border-blue-500/20 rounded-2xl p-8 flex flex-col justify-between shadow-2xl relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform duration-700">
+            <SafeIcon icon={FiZap} className="text-9xl text-blue-400" />
+          </div>
+          <div className="relative z-10">
+            <div className="bg-blue-600 w-10 h-10 rounded-xl flex items-center justify-center text-white mb-6 shadow-lg shadow-blue-600/30">
+               <SafeIcon icon={FiZap} className="text-xl" />
+            </div>
+            <h3 className="text-white font-black text-2xl mb-4 italic leading-tight uppercase tracking-tighter">Enterprise Optimization</h3>
+            <p className="text-slate-400 text-sm leading-relaxed mb-8">
+              Your pipeline is currently utilizing <strong className="text-blue-400 font-black">V8 Isolate caching</strong>. 
+              Deduplication checks are executing in <span className="text-emerald-400 font-bold">~4ms</span> per record.
+            </p>
+          </div>
+          <button className="relative z-10 w-full bg-white text-blue-900 py-4 rounded-xl text-xs font-black transition-all hover:bg-blue-50 shadow-xl uppercase tracking-widest">
+            UPGRADE COMPUTE CAPACITY
+          </button>
+        </div>
       </div>
     </div>
   );

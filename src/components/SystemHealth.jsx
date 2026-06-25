@@ -1,15 +1,41 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import SafeIcon from '../common/SafeIcon';
-import { FiServer, FiGlobe, FiCpu, FiHardDrive, FiCheckCircle } from 'react-icons/fi';
+import { FiServer, FiGlobe, FiCpu, FiHardDrive, FiCheckCircle, FiAlertCircle, FiRefreshCw } from 'react-icons/fi';
 import { motion } from 'framer-motion';
+import { configService } from '../services/configService';
 
 export default function SystemHealth() {
-  const regions = [
-    { name: 'US-East (Virginia)', status: 'Optimal', latency: '12ms', load: '24%', icon: FiGlobe },
-    { name: 'EU-West (London)', status: 'Optimal', latency: '45ms', load: '18%', icon: FiGlobe },
-    { name: 'AP-South (Singapore)', status: 'Optimal', latency: '88ms', load: '12%', icon: FiGlobe },
-    { name: 'US-West (Oregon)', status: 'Degraded', latency: '142ms', load: '89%', icon: FiGlobe, warning: true },
+  const [regions, setRegions] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const defaultRegions = [
+    { name: 'US-East (Virginia)', status: 'Optimal', latency: '12ms', load: '24%', icon: 'Globe' },
+    { name: 'EU-West (London)', status: 'Optimal', latency: '45ms', load: '18%', icon: 'Globe' },
+    { name: 'AP-South (Singapore)', status: 'Optimal', latency: '88ms', load: '12%', icon: 'Globe' },
+    { name: 'US-West (Oregon)', status: 'Degraded', latency: '142ms', load: '89%', icon: 'Globe', warning: true },
   ];
+
+  useEffect(() => {
+    loadHealth();
+  }, []);
+
+  const loadHealth = async () => {
+    setLoading(true);
+    const saved = await configService.get('system_health_regions', defaultRegions);
+    setRegions(saved);
+    setLoading(false);
+  };
+
+  const simulateFailover = async () => {
+    const updated = regions.map(r => ({
+      ...r,
+      status: r.warning ? 'Recovering' : 'Optimal',
+      latency: r.warning ? '62ms' : r.latency,
+      warning: false
+    }));
+    setRegions(updated);
+    await configService.set('system_health_regions', updated);
+  };
 
   const metrics = [
     { label: 'Edge Nodes', value: '2,401', icon: FiServer },
@@ -21,47 +47,69 @@ export default function SystemHealth() {
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {metrics.map((m, i) => (
-          <div key={i} className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl flex items-center gap-4">
-            <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400">
+          <div key={i} className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl flex items-center gap-4 shadow-lg group hover:border-slate-700 transition-all">
+            <div className="p-3 bg-blue-500/10 rounded-xl text-blue-400 group-hover:bg-blue-600 group-hover:text-white transition-all">
               <SafeIcon icon={m.icon} />
             </div>
             <div>
-              <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{m.label}</p>
-              <p className="text-xl font-bold text-white">{m.value}</p>
+              <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest leading-none mb-1">{m.label}</p>
+              <p className="text-2xl font-black text-white">{m.value}</p>
             </div>
           </div>
         ))}
       </div>
 
-      <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-800 bg-slate-800/20 flex justify-between items-center">
-          <h3 className="text-white font-medium flex items-center gap-2">
-            <SafeIcon icon={FiGlobe} className="text-blue-400" />
-            Global Edge Distribution
-          </h3>
-          <span className="text-[10px] text-slate-400 font-mono">REPLICATION_FACTOR: 3x</span>
+      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+        <div className="px-8 py-6 border-b border-slate-800 bg-slate-800/20 flex justify-between items-center">
+          <div>
+            <h3 className="text-white font-bold flex items-center gap-3 text-lg">
+              <SafeIcon name="Globe" className="text-blue-400" />
+              Global Edge Distribution
+            </h3>
+            <p className="text-slate-500 text-[10px] uppercase font-bold tracking-widest mt-1">Real-time Latency Mesh</p>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-[10px] text-slate-500 font-mono hidden md:block">REPLICATION_FACTOR: 3x</span>
+            <button 
+              onClick={simulateFailover}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all border border-slate-700"
+            >
+              <SafeIcon icon={FiRefreshCw} /> RE-BALANCE TRAFFIC
+            </button>
+          </div>
         </div>
-        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-          {regions.map((region, i) => (
+
+        <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-950/30">
+          {loading ? (
+             <div className="col-span-2 py-12 text-center text-slate-600 animate-pulse font-black uppercase text-xs tracking-[0.2em]">Resolving Global Mesh...</div>
+          ) : regions.map((region, i) => (
             <motion.div 
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, x: -10 }} 
+              animate={{ opacity: 1, x: 0 }} 
               transition={{ delay: i * 0.1 }}
               key={region.name} 
-              className="p-4 bg-slate-950/50 border border-slate-800 rounded-lg flex justify-between items-center"
+              className={`p-5 rounded-2xl border transition-all flex justify-between items-center group ${region.warning ? 'bg-red-500/5 border-red-500/20' : 'bg-slate-950 border-slate-800 hover:border-slate-600'}`}
             >
-              <div className="flex items-center gap-3">
-                <SafeIcon icon={region.icon} className={region.warning ? 'text-amber-400' : 'text-emerald-400'} />
+              <div className="flex items-center gap-4">
+                <div className={`p-3 rounded-xl ${region.warning ? 'bg-red-500/20 text-red-400' : 'bg-slate-900 text-blue-400'}`}>
+                   <SafeIcon name={region.icon} className="text-xl" />
+                </div>
                 <div>
-                  <p className="text-sm font-semibold text-slate-200">{region.name}</p>
-                  <p className="text-[10px] text-slate-500 font-mono">LOAD: {region.load}</p>
+                  <p className="text-sm font-black text-slate-200 mb-0.5">{region.name}</p>
+                  <p className="text-[10px] text-slate-500 font-mono flex items-center gap-2">
+                    <span className="inline-block w-1 h-1 rounded-full bg-slate-700"></span>
+                    LOAD_FACTOR: {region.load}
+                  </p>
                 </div>
               </div>
               <div className="text-right">
-                <p className={`text-[10px] font-bold uppercase ${region.warning ? 'text-amber-400' : 'text-emerald-400'}`}>
+                <p className={`text-[10px] font-black uppercase tracking-[0.1em] mb-1 ${region.warning ? 'text-red-400' : 'text-emerald-400'}`}>
                   {region.status}
                 </p>
-                <p className="text-[10px] text-slate-500">{region.latency}</p>
+                <div className="flex items-center justify-end gap-1.5 text-[11px] text-slate-500 font-mono">
+                  <SafeIcon icon={FiRefreshCw} className="text-[10px]" />
+                  {region.latency}
+                </div>
               </div>
             </motion.div>
           ))}
