@@ -54,7 +54,7 @@ export default function Monitoring({ logs }) {
         </div>
       </div>
       
-      <div className="min-h-[400px] max-h-[600px] overflow-y-auto custom-scrollbar">
+      <div className="min-h-[400px] max-h-[600px] overflow-auto custom-scrollbar">
         <table className="w-full text-left border-collapse">
           <thead className="sticky top-0 bg-slate-900 z-10 shadow-sm">
             <tr className="text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-800">

@@ -5,7 +5,12 @@
  * @param {string} severity - 'INFO', 'HIGH', 'CRITICAL'
  * @param {string} message - Descriptive log message
  */
+import { logToSheets } from './workerSheets.js';
+
 export async function logTelemetry(env, eventType, severity, message) {
+  // Conditionally route to Google Sheets Logs tab for UI monitoring
+  await logToSheets(env, eventType, severity, message);
+
   const payload = {
     telemetry_envelope: {
       project_id: "AXIM_CRM_BRIDGE", // Critical: Exact routing tag for Core
