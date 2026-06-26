@@ -12,10 +12,11 @@ import RecoveryCenter from './components/RecoveryCenter';
 import SettingsView from './components/SettingsView';
 import ConfigView from './components/ConfigView';
 import AutomationWorkflows from './components/AutomationWorkflows';
+import DataImporter from './components/DataImporter';
 import SafeIcon from './common/SafeIcon';
 import { logService } from './services/logService';
 import { configService } from './services/configService';
-import { FiCode, FiActivity, FiLayout, FiShield, FiRefreshCw, FiSettings, FiShuffle, FiDatabase, FiZap } from 'react-icons/fi';
+import { FiCode, FiActivity, FiLayout, FiShield, FiRefreshCw, FiSettings, FiShuffle, FiDatabase, FiZap, FiUploadCloud } from 'react-icons/fi';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function App() {
@@ -77,6 +78,7 @@ export default function App() {
 
   const tabs = [
     { id: 'dashboard', label: 'Overview', icon: FiLayout },
+    { id: 'importer', label: 'Upload', icon: FiUploadCloud },
     { id: 'orchestrator', label: 'Pipeline', icon: FiShuffle },
     { id: 'automation', label: 'Automation', icon: FiZap },
     { id: 'sources', label: 'Sources', icon: FiDatabase },
@@ -145,6 +147,8 @@ export default function App() {
                 </div>
               </div>
             )}
+
+            {activeTab === 'importer' && <DataImporter />}
 
             {activeTab === 'orchestrator' && (
               <div className="space-y-8">

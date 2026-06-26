@@ -1,6 +1,7 @@
 import { sanitizeLeadData } from './utils/sanitize.js';
 import { logTelemetry } from './utils/telemetry.js';
 import { logToRecovery } from './utils/workerSheets.js';
+import { enrichRecord } from './utils/enrichmentLogic.js';
 
 /**
  * Cloudflare Worker Entry Point
@@ -10,7 +11,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-if (url.pathname === '/v1/management/sync' && request.method === 'POST') {
+    if (url.pathname === '/v1/management/sync' && request.method === 'POST') {
       try {
         const authHeader = request.headers.get('Authorization');
         if (authHeader !== `Bearer ${env.AXIM_INTERNAL_KEY}`) {
@@ -26,7 +27,6 @@ if (url.pathname === '/v1/management/sync' && request.method === 'POST') {
              const key = row[0];
              const val = row[1];
              if (key && val) {
-               // Value stored in Sheets is a JSON stringified string of the value, e.g. '"https://..."'. We can store it as is or parse.
                await env.LEAD_KV.put(`config:${key}`, val);
                count++;
              }
@@ -45,7 +45,6 @@ if (url.pathname === '/v1/management/sync' && request.method === 'POST') {
 
     // INGRESS: Webhook Catcher Endpoint
     if (url.pathname === '/v1/webhooks/enrich' && request.method === 'POST') {
-
       try {
         // Authenticate incoming traffic using internal AXiM service key
         const authHeader = request.headers.get('Authorization');
@@ -54,27 +53,32 @@ if (url.pathname === '/v1/management/sync' && request.method === 'POST') {
         }
 
         const rawPayload = await request.json();
+        const source = rawPayload.source || 'api';
         
-        // 1. Data Validation & Sanitization
-        const { source, records } = rawPayload;
-        if (!records || !Array.isArray(records)) {
-            return new Response('Invalid Payload Format', { status: 400 });
+        // Single object or array support
+        let records = [];
+        if (Array.isArray(rawPayload.records)) {
+          records = rawPayload.records;
+        } else if (rawPayload.record) {
+          records = [rawPayload.record];
+        } else if (Array.isArray(rawPayload)) {
+          records = rawPayload;
+        } else {
+          return new Response('Invalid Payload Format: Expected records array or single record', { status: 400 });
         }
-        
-        const cleanRecords = records.map(sanitizeLeadData).filter(r => r.isValid);
 
-        if (cleanRecords.length === 0) {
-           return new Response(JSON.stringify({ message: 'No valid records found post-sanitization.' }), { 
+        if (records.length === 0) {
+           return new Response(JSON.stringify({ message: 'No records provided.' }), {
              status: 200,
              headers: { 'Content-Type': 'application/json' }
            });
         }
 
-        // 2. Out-of-band Processing via ctx.waitUntil
-        // This ensures the scraper gets an immediate 202 Accepted without waiting for the Albato/CRM sync
-        ctx.waitUntil(processAndDispatch(env, source, cleanRecords));
+        // Out-of-band Processing via ctx.waitUntil
+        // Processes array in small chunks (e.g. 50 records at a time) through sanitize and enrich
+        ctx.waitUntil(processInBatches(env, source, records));
 
-        return new Response(JSON.stringify({ status: 'Accepted', processing_count: cleanRecords.length }), { 
+        return new Response(JSON.stringify({ status: 'Accepted', processing_count: records.length }), {
             status: 202,
             headers: { 'Content-Type': 'application/json' }
         });
@@ -91,34 +95,56 @@ if (url.pathname === '/v1/management/sync' && request.method === 'POST') {
 
 // --- PIPELINE HANDLERS ---
 
+async function processInBatches(env, source, rawRecords) {
+  const BATCH_SIZE = 50;
+
+  for (let i = 0; i < rawRecords.length; i += BATCH_SIZE) {
+    const chunk = rawRecords.slice(i, i + BATCH_SIZE);
+
+    try {
+      const cleanRecords = [];
+
+      for (const record of chunk) {
+        const sanitized = sanitizeLeadData(record);
+        if (sanitized.isValid) {
+          const enriched = await enrichRecord(sanitized);
+          cleanRecords.push(enriched);
+        }
+      }
+
+      if (cleanRecords.length > 0) {
+        await processAndDispatch(env, source, cleanRecords);
+      }
+    } catch (error) {
+      await logTelemetry(env, 'BATCH_PROCESS_FAULT', 'HIGH', `Error in batch ${i / BATCH_SIZE}: ${error.message}`);
+    }
+  }
+}
+
 async function processAndDispatch(env, source, records) {
   try {
      // A. Deduplication Check (Using Cloudflare KV)
-     // Generate a hash pattern of the emails to prevent duplicate pushes
      const uniqueRecords = [];
      for (const record of records) {
-         // In production env.LEAD_KV will be bound. Mock fallback for local testing if unbound.
          if (env.LEAD_KV) {
            const isDuplicate = await env.LEAD_KV.get(`lead:${record.email}`);
            if (!isDuplicate) {
                uniqueRecords.push(record);
-               // Lock for 30 days to prevent future duplicate scrapes
                await env.LEAD_KV.put(`lead:${record.email}`, "true", { expirationTtl: 2592000 }); 
            }
          } else {
-           uniqueRecords.push(record); // Fallback if KV is unconfigured
+           uniqueRecords.push(record);
          }
      }
 
      if (uniqueRecords.length === 0) return;
 
-// B. Dispatch to Albato
-     let webhookUrl = env.ALBATO_WEBHOOK_URL;
+     // B. Dispatch to Albato
+     let webhookUrl = env.ALBATO_WEBHOOK_URL || 'https://h.albato.com/wh/placeholder';
      if (env.LEAD_KV) {
        const kvUrl = await env.LEAD_KV.get('config:egress_url');
        if (kvUrl) {
          try {
-           // We expect it to be JSON stringified since configService.set does JSON.stringify
            webhookUrl = JSON.parse(kvUrl);
          } catch {
            webhookUrl = kvUrl;
@@ -132,7 +158,6 @@ async function processAndDispatch(env, source, records) {
      };
 
      const albatoRes = await fetch(webhookUrl, {
-
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify(albatoPayload)
