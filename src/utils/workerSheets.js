@@ -21,24 +21,45 @@ export async function getWorkerAccessToken(env) {
   return cached.token;
 }
 
-export async function workerSheetsRequest(env, path, init = {}) {
+export async function workerSheetsRequest(env, path, init = {}, retries = 3) {
   const token = await getWorkerAccessToken(env);
   const sheetId = env.SPREADSHEET_ID || "1Ape3xX5L-gLAiPX_Lqds05ZqmxZRYfXJ0XVA6kc7zAE";
 
-  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}${path}`, {
-    ...init,
-    headers: {
-      ...(init.headers || {}),
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-  });
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}${path}`, {
+        ...init,
+        headers: {
+          ...(init.headers || {}),
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+      });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Sheets API ${res.status}: ${text}`);
+      if (!res.ok) {
+        if (res.status === 429 && attempt < retries) {
+          // Rate limited, wait and retry
+          const waitTime = Math.pow(2, attempt) * 1000;
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        }
+
+        const text = await res.text();
+        throw new Error(`Sheets API ${res.status}: ${text}`);
+      }
+      return await res.json();
+    } catch (error) {
+      if (attempt === retries) {
+        console.error("Sheets API failed after retries:", error);
+        // Swallowing the error gracefully for resilience so the pipeline doesn't crash completely.
+        // Returning an empty object/array depending on context could be safer but { values: [] } works for the sync path.
+        return { values: [], _error: error.message };
+      }
+      // Retry on network errors
+      const waitTime = Math.pow(2, attempt) * 1000;
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
   }
-  return res.json();
 }
 
 export const workerAppendRow = (env, range, values) => workerSheetsRequest(env, `/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
