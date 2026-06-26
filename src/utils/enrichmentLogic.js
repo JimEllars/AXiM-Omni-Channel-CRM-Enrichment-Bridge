@@ -5,6 +5,10 @@
 
 // Mock third-party API call
 async function mockThirdPartyEnrichment(provider, data) {
+  // Randomized jitter to avoid self-DDoS / rate limiting
+  const jitter = Math.random() * 1500;
+  await new Promise(resolve => setTimeout(resolve, jitter));
+
   return new Promise((resolve, reject) => {
     // Randomly fail or succeed for mock
     const willFail = Math.random() > 0.8;
@@ -38,17 +42,45 @@ export async function enrichRecord(record) {
 
   const pendingCalls = [];
 
+  // Missing Email -> Clearbit Waterfall
+  if (!result.email || result.email.trim() === '') {
+    result.enrichmentQueued = true;
+    const action = {
+      type: 'FIND_EMAIL',
+      provider: 'clearbit_waterfall_mock',
+      priority: 'high',
+      status: 'pending',
+      triggerCondition: 'MISSING_EMAIL'
+    };
+    result.enrichmentActions.push(action);
+    pendingCalls.push(withTimeout(mockThirdPartyEnrichment(action.provider, record), 4000));
+  }
+
+  // Missing Phone -> Apollo Scraping Protocol
+  if (!result.phone || result.phone.trim() === '') {
+    result.enrichmentQueued = true;
+    const action = {
+      type: 'FIND_PHONE',
+      provider: 'apollo_scraping_protocol_mock',
+      priority: 'high',
+      status: 'pending',
+      triggerCondition: 'MISSING_PHONE'
+    };
+    result.enrichmentActions.push(action);
+    pendingCalls.push(withTimeout(mockThirdPartyEnrichment(action.provider, record), 4000));
+  }
+
   // Check for missing company
   if (!result.company || result.company.trim() === '') {
     result.enrichmentQueued = true;
     const action = {
       type: 'SCRAPE_COMPANY',
       provider: 'linkedin',
-      priority: 'high',
+      priority: 'medium',
       status: 'pending'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(withTimeout(mockThirdPartyEnrichment(action.provider, record), 3000));
+    pendingCalls.push(withTimeout(mockThirdPartyEnrichment(action.provider, record), 4000));
   }
 
   // Check for missing LinkedIn URL
@@ -61,7 +93,7 @@ export async function enrichRecord(record) {
       status: 'pending'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(withTimeout(mockThirdPartyEnrichment(action.provider, record), 3000));
+    pendingCalls.push(withTimeout(mockThirdPartyEnrichment(action.provider, record), 4000));
   }
 
   // Check for missing company size (example of workflow trigger)
@@ -74,7 +106,7 @@ export async function enrichRecord(record) {
           status: 'pending'
       };
       result.enrichmentActions.push(action);
-      pendingCalls.push(withTimeout(mockThirdPartyEnrichment(action.provider, record), 3000));
+      pendingCalls.push(withTimeout(mockThirdPartyEnrichment(action.provider, record), 4000));
   }
 
   if (pendingCalls.length > 0) {

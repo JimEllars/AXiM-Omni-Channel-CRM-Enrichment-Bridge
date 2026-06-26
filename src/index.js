@@ -90,6 +90,11 @@ export default {
     }
 
     return new Response('Endpoint Not Found', { status: 404 });
+  },
+
+  // SCHEDULED: Cron Trigger Handler for Database Sweeps
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(performDatabaseSweep(env));
   }
 };
 
@@ -100,6 +105,8 @@ async function processInBatches(env, source, rawRecords) {
 
   for (let i = 0; i < rawRecords.length; i += BATCH_SIZE) {
     const chunk = rawRecords.slice(i, i + BATCH_SIZE);
+    let successCount = 0;
+    let enrichmentFailCount = 0;
 
     try {
       const cleanRecords = [];
@@ -108,13 +115,19 @@ async function processInBatches(env, source, rawRecords) {
         const sanitized = sanitizeLeadData(record);
         if (sanitized.isValid) {
           const enriched = await enrichRecord(sanitized);
+          if (enriched._enrichment_failed) {
+            enrichmentFailCount++;
+          }
           cleanRecords.push(enriched);
         }
       }
 
       if (cleanRecords.length > 0) {
         await processAndDispatch(env, source, cleanRecords);
+        successCount = cleanRecords.length;
       }
+
+      await logTelemetry(env, 'SYNC_SUCCESS', 'INFO', `[BATCH IMPORT] Processed: ${chunk.length} | Success: ${successCount} | Enrichment Fails: ${enrichmentFailCount}`);
     } catch (error) {
       await logTelemetry(env, 'BATCH_PROCESS_FAULT', 'HIGH', `Error in batch ${i / BATCH_SIZE}: ${error.message}`);
     }
@@ -168,10 +181,37 @@ async function processAndDispatch(env, source, records) {
          throw new Error(`Albato rejection: ${albatoRes.status}`);
      }
 
-     // C. Log Success to AXiM Core
-     await logTelemetry(env, 'SYNC_SUCCESS', 'INFO', `Successfully pushed ${uniqueRecords.length} leads to CRM.`);
-
   } catch (error) {
      await logTelemetry(env, 'DISPATCH_FAULT', 'CRITICAL', error.message);
+  }
+}
+
+
+// --- SCHEDULED HANDLERS ---
+async function performDatabaseSweep(env) {
+  try {
+    await logTelemetry(env, 'SWEEP_START', 'INFO', 'Starting nightly database sweep for enrichment.');
+
+    // Placeholder for actual database sweep logic
+    // In a real implementation, this would query KV (or another DB) for leads:
+    // 1. Tagged with needs_enrichment: true
+    // 2. Older than 90 days
+
+    const mockSweepData = [
+      { email: 'stale1@example.com', name: 'Stale Lead', needs_enrichment: true },
+      { email: 'stale2@example.com', name: 'Old Lead' } // Mocking > 90 days old
+    ];
+
+    // Route them back through the enrichment logic
+    const sweepBatches = mockSweepData.map(record => sanitizeLeadData(record))
+                                      .filter(sanitized => sanitized.isValid);
+
+    if (sweepBatches.length > 0) {
+      await processInBatches(env, 'scheduled_sweep', sweepBatches);
+    }
+
+    await logTelemetry(env, 'SWEEP_COMPLETE', 'INFO', `Completed database sweep. Processed ${mockSweepData.length} records.`);
+  } catch (error) {
+    await logTelemetry(env, 'SWEEP_FAULT', 'HIGH', `Error during database sweep: ${error.message}`);
   }
 }
