@@ -1,5 +1,6 @@
 import { sanitizeLeadData } from './utils/sanitize.js';
 import { logTelemetry } from './utils/telemetry.js';
+import { logToRecovery } from './utils/workerSheets.js';
 
 /**
  * Cloudflare Worker Entry Point
@@ -89,7 +90,10 @@ async function processAndDispatch(env, source, records) {
          body: JSON.stringify(albatoPayload)
      });
 
-     if (!albatoRes.ok) throw new Error(`Albato rejection: ${albatoRes.status}`);
+     if (!albatoRes.ok) {
+         await logToRecovery(env, source, "Albato 500/Rejection", albatoPayload);
+         throw new Error(`Albato rejection: ${albatoRes.status}`);
+     }
 
      // C. Log Success to AXiM Core
      await logTelemetry(env, 'SYNC_SUCCESS', 'INFO', `Successfully pushed ${uniqueRecords.length} leads to CRM.`);

@@ -61,9 +61,9 @@ export default function RecoveryCenter({ onRetrySuccess }) {
         </div>
       </div>
 
-      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl overflow-x-auto">
         <table className="w-full text-left">
-          <thead className="bg-slate-800/30 text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-800">
+          <thead className="sticky top-0 z-10 bg-slate-900 text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-800">
             <tr>
               <th className="px-6 py-4">Origin</th>
               <th className="px-6 py-4">Reason</th>
