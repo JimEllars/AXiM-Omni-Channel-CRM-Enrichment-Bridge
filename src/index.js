@@ -10,8 +10,42 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+if (url.pathname === '/v1/management/sync' && request.method === 'POST') {
+      try {
+        const authHeader = request.headers.get('Authorization');
+        if (authHeader !== `Bearer ${env.AXIM_INTERNAL_KEY}`) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        const { workerSheetsRequest } = await import('./utils/workerSheets.js');
+        const data = await workerSheetsRequest(env, '/values/Config!A:B');
+
+        let count = 0;
+        if (data.values && env.LEAD_KV) {
+          for (const row of data.values) {
+             const key = row[0];
+             const val = row[1];
+             if (key && val) {
+               // Value stored in Sheets is a JSON stringified string of the value, e.g. '"https://..."'. We can store it as is or parse.
+               await env.LEAD_KV.put(`config:${key}`, val);
+               count++;
+             }
+          }
+        }
+
+        return new Response(JSON.stringify({ status: 'Synced', count }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        ctx.waitUntil(logTelemetry(env, 'SYNC_FAULT', 'HIGH', error.message));
+        return new Response('Sync Error', { status: 500 });
+      }
+    }
+
     // INGRESS: Webhook Catcher Endpoint
     if (url.pathname === '/v1/webhooks/enrich' && request.method === 'POST') {
+
       try {
         // Authenticate incoming traffic using internal AXiM service key
         const authHeader = request.headers.get('Authorization');
@@ -78,13 +112,27 @@ async function processAndDispatch(env, source, records) {
 
      if (uniqueRecords.length === 0) return;
 
-     // B. Dispatch to Albato
+// B. Dispatch to Albato
+     let webhookUrl = env.ALBATO_WEBHOOK_URL;
+     if (env.LEAD_KV) {
+       const kvUrl = await env.LEAD_KV.get('config:egress_url');
+       if (kvUrl) {
+         try {
+           // We expect it to be JSON stringified since configService.set does JSON.stringify
+           webhookUrl = JSON.parse(kvUrl);
+         } catch {
+           webhookUrl = kvUrl;
+         }
+       }
+     }
+
      const albatoPayload = {
          metadata: { source: source, processed_at: new Date().toISOString() },
          data: uniqueRecords
      };
 
-     const albatoRes = await fetch(env.ALBATO_WEBHOOK_URL, {
+     const albatoRes = await fetch(webhookUrl, {
+
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify(albatoPayload)

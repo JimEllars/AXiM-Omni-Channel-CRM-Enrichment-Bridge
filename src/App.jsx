@@ -11,10 +11,11 @@ import PipelineDesigner from './components/PipelineDesigner';
 import RecoveryCenter from './components/RecoveryCenter';
 import SettingsView from './components/SettingsView';
 import ConfigView from './components/ConfigView';
+import AutomationWorkflows from './components/AutomationWorkflows';
 import SafeIcon from './common/SafeIcon';
 import { logService } from './services/logService';
 import { configService } from './services/configService';
-import { FiCode, FiActivity, FiLayout, FiShield, FiRefreshCw, FiSettings, FiShuffle, FiDatabase } from 'react-icons/fi';
+import { FiCode, FiActivity, FiLayout, FiShield, FiRefreshCw, FiSettings, FiShuffle, FiDatabase, FiZap } from 'react-icons/fi';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function App() {
@@ -77,6 +78,7 @@ export default function App() {
   const tabs = [
     { id: 'dashboard', label: 'Overview', icon: FiLayout },
     { id: 'orchestrator', label: 'Pipeline', icon: FiShuffle },
+    { id: 'automation', label: 'Automation', icon: FiZap },
     { id: 'sources', label: 'Sources', icon: FiDatabase },
     { id: 'recovery', label: 'Recovery', icon: FiRefreshCw },
     { id: 'sandbox', label: 'Sandbox', icon: FiCode },
@@ -151,6 +153,8 @@ export default function App() {
                 <ConfigView />
               </div>
             )}
+
+            {activeTab === 'automation' && <AutomationWorkflows />}
 
             {activeTab === 'sources' && <SourcesView />}
             {activeTab === 'recovery' && <RecoveryCenter onRetrySuccess={() => setStats(s => ({...s, passed: s.passed + 1, dropped: s.dropped - 1}))} />}

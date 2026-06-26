@@ -20,8 +20,26 @@ export default function ConfigView() {
     load();
   }, []);
 
+
   const handleSave = async () => {
+    // 1. Save to Google Sheets
     await configService.set('egress_url', webhookUrl);
+
+    // 2. Trigger KV Sync Endpoint
+    try {
+      const syncRes = await fetch('/v1/management/sync', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_AXIM_INTERNAL_KEY}`
+        }
+      });
+      if (!syncRes.ok) {
+        console.error('Failed to sync KV cache on the edge', await syncRes.text());
+      }
+    } catch (e) {
+      console.error('Error triggering KV sync:', e);
+    }
+
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 2000);
   };
