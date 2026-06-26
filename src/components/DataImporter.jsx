@@ -11,6 +11,7 @@ export default function DataImporter() {
   const [mapping, setMapping] = useState({});
   const [status, setStatus] = useState('IDLE'); // IDLE, MAPPING, PROCESSING, DONE
   const [progress, setProgress] = useState(0);
+  const [validationError, setValidationError] = useState(null);
   const fileInputRef = useRef(null);
 
   const aximSchema = [
@@ -45,14 +46,16 @@ export default function DataImporter() {
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
+        transformHeader: header => header.trim(),
         complete: (results) => {
-          setHeaders(results.meta.fields || []);
-          setData(results.data);
+          const fields = results.meta.fields || [];
+          const cleanedData = results.data.filter(row => Object.values(row).some(val => val !== null && val !== '' && typeof val === 'string' ? val.trim() !== '' : true));
+          setHeaders(fields);
+          setData(cleanedData);
           setStatus('MAPPING');
 
           // Auto-map where possible
           const initialMapping = {};
-          const fields = results.meta.fields || [];
           aximSchema.forEach(schema => {
              const match = fields.find(f => f.toLowerCase().includes(schema.key.toLowerCase()));
              if (match) initialMapping[schema.key] = match;
@@ -66,10 +69,19 @@ export default function DataImporter() {
         try {
           const json = JSON.parse(e.target.result);
           const parsedData = Array.isArray(json) ? json : [json];
-          if (parsedData.length > 0) {
-            const keys = Object.keys(parsedData[0]);
+          const cleanedData = parsedData.filter(row => Object.keys(row).length > 0 && Object.values(row).some(v => v !== null && v !== ''));
+
+          if (cleanedData.length > 0) {
+            const trimmedData = cleanedData.map(row => {
+              const newRow = {};
+              for (const [key, value] of Object.entries(row)) {
+                 newRow[key.trim()] = value;
+              }
+              return newRow;
+            });
+            const keys = Object.keys(trimmedData[0]);
             setHeaders(keys);
-            setData(parsedData);
+            setData(trimmedData);
             setStatus('MAPPING');
           }
         } catch (err) {
@@ -85,6 +97,24 @@ export default function DataImporter() {
   };
 
   const handleProcess = async () => {
+    // Validation step
+    const emailKey = mapping['email'];
+    if (emailKey) {
+       let invalidCount = 0;
+       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+       for (const row of data) {
+           const email = row[emailKey];
+           if (!email || !emailRegex.test(String(email).trim())) {
+               invalidCount++;
+           }
+       }
+       if (data.length > 0 && (invalidCount / data.length) >= 0.5) {
+           setValidationError(`Validation Error: ${(invalidCount / data.length * 100).toFixed(0)}% of rows have invalid or missing emails in the mapped column. Please fix your data or mapping.`);
+           return;
+       }
+    }
+    setValidationError(null);
+
     setStatus('PROCESSING');
     setProgress(0);
 
@@ -131,6 +161,7 @@ export default function DataImporter() {
     setMapping({});
     setStatus('IDLE');
     setProgress(0);
+    setValidationError(null);
   };
 
   return (
@@ -218,6 +249,11 @@ export default function DataImporter() {
                  ))}
                </div>
 
+               {validationError && (
+                 <div className="mb-4 p-4 bg-red-500/20 border border-red-500 rounded-xl text-red-400 text-sm font-bold">
+                    {validationError}
+                 </div>
+               )}
                <div className="flex justify-end">
                  <button
                    onClick={handleProcess}

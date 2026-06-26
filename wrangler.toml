@@ -9,3 +9,5 @@ kv_namespaces = [
 
 # Note: Secrets like AXIM_INTERNAL_KEY and ALBATO_WEBHOOK_URL 
 # should be added via `wrangler secret put <KEY_NAME>`
+[triggers]
+crons = ["0 2 * * *"]
