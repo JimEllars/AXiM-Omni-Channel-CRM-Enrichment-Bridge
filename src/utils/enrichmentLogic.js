@@ -1,25 +1,57 @@
+
 /**
  * Asynchronous Enrichment Service Layer
  * Evaluates a sanitized lead and determines if additional data gathering is required.
  */
 
-// Mock third-party API call
-async function mockThirdPartyEnrichment(provider, data) {
-  // Randomized jitter to avoid self-DDoS / rate limiting
-  const jitter = Math.random() * 1500;
-  await new Promise(resolve => setTimeout(resolve, jitter));
+const getApiKey = () => {
+  if (typeof process !== 'undefined' && process.env && process.env.ENRICHMENT_API_KEY) {
+    return process.env.ENRICHMENT_API_KEY;
+  }
+  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_ENRICHMENT_API_KEY) {
+    return import.meta.env.VITE_ENRICHMENT_API_KEY;
+  }
+  return '';
+};
 
-  return new Promise((resolve, reject) => {
-    // Randomly fail or succeed for mock
-    const willFail = Math.random() > 0.8;
-    setTimeout(() => {
-      if (willFail) {
-        reject(new Error(`${provider} API timeout/failure`));
-      } else {
-        resolve({ mock_enriched: true });
-      }
-    }, Math.random() * 2000 + 500); // 500ms - 2500ms
-  });
+// Real third-party API call
+async function thirdPartyEnrichment(provider, data) {
+  const apiKey = getApiKey();
+
+  if (!apiKey) {
+    throw new Error('401 Unauthorized: ENRICHMENT_API_KEY is not defined');
+  }
+
+  let url;
+  let method = 'GET';
+  let body = null;
+  const headers = {
+    'Authorization': `Bearer ${apiKey}`,
+    'Content-Type': 'application/json'
+  };
+
+  if (provider.includes('clearbit')) {
+    url = 'https://clearbit.com/v1/enrichment';
+    method = 'POST';
+    body = JSON.stringify({ email: data.email, domain: data.company });
+  } else if (provider.includes('apollo')) {
+    url = 'https://api.apollo.io/v1/people/match';
+    method = 'POST';
+    body = JSON.stringify({ first_name: data.first_name, last_name: data.last_name, organization_name: data.company });
+  } else if (provider === 'linkedin') {
+     // Mocking linkedin for now, as it requires a specific scraping setup, keeping the interface ready
+    return { mock_enriched: true };
+  } else {
+    throw new Error(`Unknown provider: ${provider}`);
+  }
+
+  const response = await fetch(url, { method, headers, body });
+
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText}`);
+  }
+
+  return response.json();
 }
 
 // Timeout wrapper
@@ -47,13 +79,13 @@ export async function enrichRecord(record) {
     result.enrichmentQueued = true;
     const action = {
       type: 'FIND_EMAIL',
-      provider: 'clearbit_waterfall_mock',
+      provider: 'clearbit_waterfall',
       priority: 'high',
       status: 'pending',
       triggerCondition: 'MISSING_EMAIL'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(withTimeout(mockThirdPartyEnrichment(action.provider, record), 4000));
+    pendingCalls.push(withTimeout(thirdPartyEnrichment(action.provider, record), 4000));
   }
 
   // Missing Phone -> Apollo Scraping Protocol
@@ -61,13 +93,13 @@ export async function enrichRecord(record) {
     result.enrichmentQueued = true;
     const action = {
       type: 'FIND_PHONE',
-      provider: 'apollo_scraping_protocol_mock',
+      provider: 'apollo_scraping_protocol',
       priority: 'high',
       status: 'pending',
       triggerCondition: 'MISSING_PHONE'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(withTimeout(mockThirdPartyEnrichment(action.provider, record), 4000));
+    pendingCalls.push(withTimeout(thirdPartyEnrichment(action.provider, record), 4000));
   }
 
   // Check for missing company
@@ -80,7 +112,7 @@ export async function enrichRecord(record) {
       status: 'pending'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(withTimeout(mockThirdPartyEnrichment(action.provider, record), 4000));
+    pendingCalls.push(withTimeout(thirdPartyEnrichment(action.provider, record), 4000));
   }
 
   // Check for missing LinkedIn URL
@@ -88,12 +120,12 @@ export async function enrichRecord(record) {
     result.enrichmentQueued = true;
     const action = {
       type: 'FETCH_SOCIAL',
-      provider: 'clearbit_mock',
+      provider: 'clearbit_social',
       priority: 'medium',
       status: 'pending'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(withTimeout(mockThirdPartyEnrichment(action.provider, record), 4000));
+    pendingCalls.push(withTimeout(thirdPartyEnrichment(action.provider, record), 4000));
   }
 
   // Check for missing company size (example of workflow trigger)
@@ -101,18 +133,18 @@ export async function enrichRecord(record) {
       result.enrichmentQueued = true;
       const action = {
           type: 'ENRICH_FIRMOGRAPHICS',
-          provider: 'apollo_mock',
+          provider: 'apollo_firmographics',
           priority: 'low',
           status: 'pending'
       };
       result.enrichmentActions.push(action);
-      pendingCalls.push(withTimeout(mockThirdPartyEnrichment(action.provider, record), 4000));
+      pendingCalls.push(withTimeout(thirdPartyEnrichment(action.provider, record), 4000));
   }
 
   if (pendingCalls.length > 0) {
     try {
       await Promise.all(pendingCalls);
-      // In a real app we'd merge the mock results into the record
+      // In a real app we'd merge the actual results into the record
     } catch (e) {
       // Gracefully handle fail-open requirements
       result._enrichment_failed = true;

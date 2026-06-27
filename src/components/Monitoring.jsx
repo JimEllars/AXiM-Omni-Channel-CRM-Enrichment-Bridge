@@ -14,6 +14,33 @@ export default function Monitoring({ logs }) {
     return matchesSearch && matchesFilter;
   });
 
+
+  const renderMessage = (msg) => {
+    let text = msg;
+    const badges = [];
+
+    if (text.includes('[BATCH IMPORT]')) {
+      badges.push('BATCH IMPORT');
+      text = text.replace('[BATCH IMPORT]', '').trim();
+    }
+
+    if (text.includes('[CRON RUN]')) {
+      badges.push('CRON RUN');
+      text = text.replace('[CRON RUN]', '').trim();
+    }
+
+    return (
+      <div className="flex items-center gap-2">
+        {badges.map((badge, idx) => (
+          <span key={idx} className="px-2 py-0.5 bg-slate-800 text-slate-300 rounded text-[10px] font-bold border border-slate-700">
+            {badge}
+          </span>
+        ))}
+        <span>{text}</span>
+      </div>
+    );
+  };
+
   const getSeverityColor = (sev) => {
     switch (sev) {
       case 'CRITICAL': return 'text-red-500 bg-red-500/10 border-red-500/20';
@@ -88,7 +115,7 @@ export default function Monitoring({ logs }) {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-xs text-slate-300 group-hover:text-white transition-colors">
-                      {log.msg}
+                      {renderMessage(log.msg)}
                     </td>
                     <td className="px-6 py-4 text-[10px] text-slate-500 text-right">
                       <div className="flex items-center justify-end gap-1">
