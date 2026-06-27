@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import SafeIcon from '../common/SafeIcon';
-import { FiGitCommit, FiPlus, FiTrash2, FiPlay, FiSettings, FiZap } from 'react-icons/fi';
+import { FiGitCommit, FiPlus, FiTrash2, FiPlay, FiSettings, FiZap, FiLoader } from 'react-icons/fi';
+import { configService } from '../services/configService';
 
 export default function AutomationWorkflows() {
+  const [savingId, setSavingId] = useState(null);
   const [workflows, setWorkflows] = useState([
     {
       id: 'wf_1',
@@ -24,10 +26,39 @@ export default function AutomationWorkflows() {
     }
   ]);
 
-  const toggleWorkflow = (id) => {
-    setWorkflows(workflows.map(wf =>
-      wf.id === id ? { ...wf, active: !wf.active } : wf
+  const toggleWorkflow = async (id) => {
+    const wf = workflows.find(w => w.id === id);
+    if (!wf) return;
+
+    setSavingId(id);
+
+    // Optimistic update
+    const newActiveState = !wf.active;
+    setWorkflows(workflows.map(w =>
+      w.id === id ? { ...w, active: newActiveState } : w
     ));
+
+    try {
+      // 1. Save to Google Sheets Config via configService
+      await configService.set(`workflow_active_${id}`, newActiveState);
+
+      // 2. Fire authenticated POST request to Worker's sync endpoint
+      await fetch('/v1/management/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_AXIM_INTERNAL_KEY || ''}`
+        }
+      });
+    } catch (err) {
+      console.error('Failed to sync workflow state to edge:', err);
+      // Revert on failure
+      setWorkflows(workflows.map(w =>
+        w.id === id ? { ...w, active: wf.active } : w
+      ));
+    } finally {
+      setSavingId(null);
+    }
   };
 
   const addWorkflow = () => {
@@ -71,9 +102,13 @@ export default function AutomationWorkflows() {
 
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-4">
-                <div onClick={() => toggleWorkflow(wf.id)} className={`w-10 h-5 rounded-full cursor-pointer relative transition-colors ${wf.active ? 'bg-blue-500' : 'bg-slate-700'}`}>
-                  <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${wf.active ? 'right-1' : 'left-1'}`}></div>
-                </div>
+                {savingId === wf.id ? (
+                  <SafeIcon icon={FiLoader} className="text-blue-400 animate-spin" />
+                ) : (
+                  <div onClick={() => toggleWorkflow(wf.id)} className={`w-10 h-5 rounded-full cursor-pointer relative transition-colors ${wf.active ? 'bg-blue-500' : 'bg-slate-700'}`}>
+                    <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${wf.active ? 'right-1' : 'left-1'}`}></div>
+                  </div>
+                )}
                 <h3 className="text-white font-bold text-sm">{wf.name}</h3>
               </div>
 

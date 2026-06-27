@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import Papa from 'papaparse';
 import SafeIcon from '../common/SafeIcon';
-import { FiUploadCloud, FiFile, FiCheckCircle, FiPlay, FiSettings, FiTrash2, FiActivity } from 'react-icons/fi';
+import { FiUploadCloud, FiFile, FiCheckCircle, FiPlay, FiSettings, FiTrash2, FiActivity, FiLoader } from 'react-icons/fi';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function DataImporter() {
@@ -11,6 +11,8 @@ export default function DataImporter() {
   const [mapping, setMapping] = useState({});
   const [status, setStatus] = useState('IDLE'); // IDLE, MAPPING, PROCESSING, DONE
   const [progress, setProgress] = useState(0);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [invalidData, setInvalidData] = useState(null);
   const [validationError, setValidationError] = useState(null);
   const fileInputRef = useRef(null);
 
@@ -96,30 +98,52 @@ export default function DataImporter() {
     setMapping(prev => ({ ...prev, [schemaKey]: headerValue }));
   };
 
-  const handleProcess = async () => {
+  const handleProcess = async (discardInvalid = false) => {
+    setIsProcessing(true);
+    let finalData = data;
+
     // Validation step
     const emailKey = mapping['email'];
     if (emailKey) {
        let invalidCount = 0;
+       const validRows = [];
        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
        for (const row of data) {
            const email = row[emailKey];
            if (!email || !emailRegex.test(String(email).trim())) {
                invalidCount++;
+           } else {
+               validRows.push(row);
            }
        }
-       if (data.length > 0 && (invalidCount / data.length) >= 0.5) {
-           setValidationError(`Validation Error: ${(invalidCount / data.length * 100).toFixed(0)}% of rows have invalid or missing emails in the mapped column. Please fix your data or mapping.`);
-           return;
+
+       if (invalidCount > 0) {
+           if (!discardInvalid) {
+               if (data.length > 0 && (invalidCount / data.length) >= 0.5) {
+                   setValidationError(`Validation Error: ${(invalidCount / data.length * 100).toFixed(0)}% of rows have invalid or missing emails in the mapped column. Please fix your data or mapping.`);
+                   setIsProcessing(false);
+                   return;
+               } else {
+                   setInvalidData({ count: invalidCount, validRows });
+                   setValidationError(`Warning: ${invalidCount} rows have invalid or missing emails.`);
+                   setIsProcessing(false);
+                   return;
+               }
+           } else {
+               finalData = validRows;
+               setValidationError(null);
+               setInvalidData(null);
+           }
        }
     }
     setValidationError(null);
+    setInvalidData(null);
 
     setStatus('PROCESSING');
     setProgress(0);
 
     // Transform data according to mapping
-    const mappedData = data.map(row => {
+    const mappedData = finalData.map(row => {
       const newRow = {};
       Object.keys(mapping).forEach(schemaKey => {
         if (mapping[schemaKey]) {
@@ -152,6 +176,7 @@ export default function DataImporter() {
     }
 
     setStatus('DONE');
+    setIsProcessing(false);
   };
 
   const reset = () => {
@@ -254,13 +279,24 @@ export default function DataImporter() {
                     {validationError}
                  </div>
                )}
-               <div className="flex justify-end">
+               <div className="flex justify-end gap-4">
+                 {invalidData && (
+                    <button
+                      onClick={() => handleProcess(true)}
+                      disabled={isProcessing}
+                      className="px-6 py-3 rounded-xl text-xs font-black transition-all flex items-center gap-2 bg-amber-600/20 text-amber-500 hover:bg-amber-600/30 border border-amber-600/50"
+                    >
+                      {isProcessing ? <SafeIcon icon={FiLoader} className="animate-spin" /> : <SafeIcon icon={FiTrash2} />}
+                      DISCARD INVALID & CONTINUE
+                    </button>
+                 )}
                  <button
-                   onClick={handleProcess}
-                   disabled={!mapping['email']}
-                   className={`px-8 py-3 rounded-xl text-xs font-black transition-all flex items-center gap-2 shadow-lg ${mapping['email'] ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}`}
+                   onClick={() => handleProcess(false)}
+                   disabled={!mapping['email'] || isProcessing || invalidData}
+                   className={`px-8 py-3 rounded-xl text-xs font-black transition-all flex items-center gap-2 shadow-lg ${mapping['email'] && !isProcessing && !invalidData ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}`}
                  >
-                   <SafeIcon icon={FiPlay} /> PROCESS & ENRICH BATCH
+                   {isProcessing && !invalidData ? <SafeIcon icon={FiLoader} className="animate-spin" /> : <SafeIcon icon={FiPlay} />}
+                   PROCESS & ENRICH BATCH
                  </button>
                </div>
             </div>
