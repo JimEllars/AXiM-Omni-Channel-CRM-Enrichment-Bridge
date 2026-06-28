@@ -41,8 +41,8 @@ async function thirdPartyEnrichment(provider, data) {
     method = 'POST';
     body = JSON.stringify({ first_name: data.first_name, last_name: data.last_name, organization_name: data.company });
   } else if (provider === 'linkedin') {
-     // Mocking linkedin for now
-    return { mock_enriched: true };
+    url = 'https://api.linkedin.com/v2/people';
+    method = 'GET';
   } else {
     throw new Error(`Unknown provider: ${provider}`);
   }
@@ -159,16 +159,16 @@ export async function enrichRecord(env, record) {
   }
 
   if (pendingCalls.length > 0) {
-    try {
-      await Promise.all(pendingCalls);
-      // In a real app we'd merge the actual results into the record
-    } catch (e) {
-      // Gracefully handle fail-open requirements
-      result._enrichment_failed = true;
-      result._enrichment_error = e.message;
-      if (env) {
-        // Only log telemetry if env is available (which it should be now)
-        await logTelemetry(env, 'ENRICHMENT_FAULT', 'HIGH', `Enrichment failed: ${e.message}`);
+    const results = await Promise.allSettled(pendingCalls);
+
+    for (const res of results) {
+      if (res.status === 'rejected') {
+        result._enrichment_failed = true;
+        result._enrichment_error = res.reason.message;
+        if (env) {
+          await logTelemetry(env, 'ENRICHMENT_FAULT', 'HIGH', `Enrichment failed: ${res.reason.message}`);
+        }
+        break; // Only need to flag once if any fail
       }
     }
   }
