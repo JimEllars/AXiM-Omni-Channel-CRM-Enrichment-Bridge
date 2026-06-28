@@ -26,21 +26,14 @@ export default function AutomationWorkflows() {
     }
   ]);
 
-  const toggleWorkflow = async (id) => {
-    const wf = workflows.find(w => w.id === id);
-    if (!wf) return;
 
-    setSavingId(id);
-
-    // Optimistic update
-    const newActiveState = !wf.active;
-    setWorkflows(workflows.map(w =>
-      w.id === id ? { ...w, active: newActiveState } : w
-    ));
+  const syncWorkflows = async (newWorkflows, savingId) => {
+    setWorkflows(newWorkflows);
+    if (savingId) setSavingId(savingId);
 
     try {
       // 1. Save to Google Sheets Config via configService
-      await configService.set(`workflow_active_${id}`, newActiveState);
+      await configService.set('automation_workflows', newWorkflows);
 
       // 2. Fire authenticated POST request to Worker's sync endpoint
       await fetch('/v1/management/sync', {
@@ -51,17 +44,22 @@ export default function AutomationWorkflows() {
         }
       });
     } catch (err) {
-      console.error('Failed to sync workflow state to edge:', err);
-      // Revert on failure
-      setWorkflows(workflows.map(w =>
-        w.id === id ? { ...w, active: wf.active } : w
-      ));
+      console.error('Failed to sync workflows to edge:', err);
+      // Not reverting here for simplicity, but could revert to previous state
     } finally {
-      setSavingId(null);
+      if (savingId) setSavingId(null);
     }
   };
 
-  const addWorkflow = () => {
+  const toggleWorkflow = async (id) => {
+    const wf = workflows.find(w => w.id === id);
+    if (!wf) return;
+    const newActiveState = !wf.active;
+    const newWorkflows = workflows.map(w => w.id === id ? { ...w, active: newActiveState } : w);
+    await syncWorkflows(newWorkflows, id);
+  };
+
+  const addWorkflow = async () => {
     const newWf = {
       id: `wf_${Date.now()}`,
       name: 'New Workflow',
@@ -71,13 +69,14 @@ export default function AutomationWorkflows() {
       provider: 'Apollo',
       active: false
     };
-    setWorkflows([...workflows, newWf]);
+    const newWorkflows = [...workflows, newWf];
+    await syncWorkflows(newWorkflows, newWf.id);
   };
 
-  const deleteWorkflow = (id) => {
-    setWorkflows(workflows.filter(wf => wf.id !== id));
+  const deleteWorkflow = async (id) => {
+    const newWorkflows = workflows.filter(wf => wf.id !== id);
+    await syncWorkflows(newWorkflows, id);
   };
-
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end mb-8">

@@ -1,3 +1,4 @@
+import { formatForDeskera } from './utils/mapper.js';
 import { sanitizeLeadData } from './utils/sanitize.js';
 import { logTelemetry } from './utils/telemetry.js';
 import { logToRecovery } from './utils/workerSheets.js';
@@ -94,6 +95,15 @@ export default {
 
   // SCHEDULED: Cron Trigger Handler for Database Sweeps
   async scheduled(event, env, ctx) {
+    try {
+      if (env.LEAD_KV) {
+        const config = await env.LEAD_KV.get('config:cron_config') || 'default_config';
+        const { logToSheets } = await import('./utils/workerSheets.js');
+        await logToSheets(env, '[CRON RUN]', 'INFO', `Nightly sync executed with config: ${config}`);
+      }
+    } catch (error) {
+      console.error('Cron job error:', error);
+    }
     ctx.waitUntil(performDatabaseSweep(env));
   }
 };
@@ -150,9 +160,14 @@ async function processAndDispatch(env, source, records) {
          }
      }
 
+
      if (uniqueRecords.length === 0) return;
 
+     // Align CRM Schema for Deskera
+     const deskeraRecords = formatForDeskera(uniqueRecords);
+
      // B. Dispatch to Albato
+
      let webhookUrl = env.ALBATO_WEBHOOK_URL || 'https://h.albato.com/wh/placeholder';
      if (env.LEAD_KV) {
        const kvUrl = await env.LEAD_KV.get('config:egress_url');
@@ -167,7 +182,7 @@ async function processAndDispatch(env, source, records) {
 
      const albatoPayload = {
          metadata: { source: source, processed_at: new Date().toISOString() },
-         data: uniqueRecords
+         data: deskeraRecords
      };
 
      const albatoRes = await fetch(webhookUrl, {
