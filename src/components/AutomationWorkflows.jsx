@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import SafeIcon from '../common/SafeIcon';
-import { FiGitCommit, FiPlus, FiTrash2, FiPlay, FiSettings, FiZap, FiLoader } from 'react-icons/fi';
+import { FiGitCommit, FiPlus, FiTrash2, FiPlay, FiSettings, FiZap, FiLoader, FiCheck } from 'react-icons/fi';
 import { configService } from '../services/configService';
 
 export default function AutomationWorkflows() {
   const [savingId, setSavingId] = useState(null);
+  const [syncedId, setSyncedId] = useState(null);
   const [workflows, setWorkflows] = useState([
     {
       id: 'wf_1',
@@ -26,6 +27,20 @@ export default function AutomationWorkflows() {
     }
   ]);
 
+  useEffect(() => {
+    const fetchWorkflows = async () => {
+      try {
+        const savedWorkflows = await configService.get('automation_workflows', null);
+        if (savedWorkflows && Array.isArray(savedWorkflows)) {
+          setWorkflows(savedWorkflows);
+        }
+      } catch (err) {
+        console.error('Failed to fetch workflows from configService:', err);
+      }
+    };
+    fetchWorkflows();
+  }, []);
+
 
   const syncWorkflows = async (newWorkflows, savingId) => {
     setWorkflows(newWorkflows);
@@ -42,7 +57,15 @@ export default function AutomationWorkflows() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${import.meta.env.VITE_AXIM_INTERNAL_KEY || ''}`
         }
+      }).catch(err => {
+        // gracefully handle fetch errors
+        console.error('Fetch to /v1/management/sync failed:', err);
       });
+
+      if (savingId) {
+        setSyncedId(savingId);
+        setTimeout(() => setSyncedId(null), 2000);
+      }
     } catch (err) {
       console.error('Failed to sync workflows to edge:', err);
       // Not reverting here for simplicity, but could revert to previous state
@@ -103,6 +126,11 @@ export default function AutomationWorkflows() {
               <div className="flex items-center gap-3 mb-4">
                 {savingId === wf.id ? (
                   <SafeIcon icon={FiLoader} className="text-blue-400 animate-spin" />
+                ) : syncedId === wf.id ? (
+                  <div className="flex items-center gap-1">
+                    <SafeIcon icon={FiCheck} className="text-green-400" />
+                    <span className="text-green-400 text-[10px] font-bold">SYNCED</span>
+                  </div>
                 ) : (
                   <div onClick={() => toggleWorkflow(wf.id)} className={`w-10 h-5 rounded-full cursor-pointer relative transition-colors ${wf.active ? 'bg-blue-500' : 'bg-slate-700'}`}>
                     <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${wf.active ? 'right-1' : 'left-1'}`}></div>
