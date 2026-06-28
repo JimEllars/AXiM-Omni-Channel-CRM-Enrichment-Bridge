@@ -15,25 +15,39 @@ export default function Monitoring({ logs }) {
   });
 
 
-  const renderMessage = (msg) => {
-    let text = msg;
+  const renderMessage = (log) => {
+    let text = log.msg;
+
     const badges = [];
 
+    if (log.type === 'SYNC_SUCCESS_ALBATO') {
+      badges.push({ text: 'Sales CRM', color: 'bg-blue-900 text-blue-300 border-blue-700' });
+    }
+    if (log.type === 'SYNC_SUCCESS_CORE') {
+      badges.push({ text: 'AXiM Core', color: 'bg-purple-900 text-purple-300 border-purple-700' });
+    }
+    if (log.type === 'EGRESS_FAULT_ALBATO') {
+      badges.push({ text: 'Sales CRM', color: 'bg-red-900 text-red-300 border-red-700' });
+    }
+    if (log.type === 'EGRESS_FAULT_CORE') {
+      badges.push({ text: 'AXiM Core', color: 'bg-red-900 text-red-300 border-red-700' });
+    }
+
     if (text.includes('[BATCH IMPORT]')) {
-      badges.push('BATCH IMPORT');
+      badges.push({ text: 'BATCH IMPORT', color: 'bg-slate-800 text-slate-300 border-slate-700' });
       text = text.replace('[BATCH IMPORT]', '').trim();
     }
 
     if (text.includes('[CRON RUN]')) {
-      badges.push('CRON RUN');
+      badges.push({ text: 'CRON RUN', color: 'bg-slate-800 text-slate-300 border-slate-700' });
       text = text.replace('[CRON RUN]', '').trim();
     }
 
     return (
       <div className="flex items-center gap-2">
         {badges.map((badge, idx) => (
-          <span key={idx} className="px-2 py-0.5 bg-slate-800 text-slate-300 rounded text-[10px] font-bold border border-slate-700">
-            {badge}
+          <span key={idx} className={`px-2 py-0.5 rounded text-[10px] font-bold border ${badge.color}`}>
+            {badge.text}
           </span>
         ))}
         <span>{text}</span>
@@ -115,7 +129,7 @@ export default function Monitoring({ logs }) {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-xs text-slate-300 group-hover:text-white transition-colors">
-                      {renderMessage(log.msg)}
+                      {renderMessage(log)}
                     </td>
                     <td className="px-6 py-4 text-[10px] text-slate-500 text-right">
                       <div className="flex items-center justify-end gap-1">

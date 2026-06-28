@@ -5,7 +5,8 @@ import { logService } from '../services/logService';
 export default function AnalyticsChart() {
   const [chartData, setChartData] = useState({
     dates: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '23:59'],
-    successData: [0, 0, 0, 0, 0, 0, 0],
+    albatoSuccessData: [0, 0, 0, 0, 0, 0, 0],
+    coreSuccessData: [0, 0, 0, 0, 0, 0, 0],
     faultData: [0, 0, 0, 0, 0, 0, 0]
   });
 
@@ -23,7 +24,8 @@ export default function AnalyticsChart() {
           dates.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
         }
 
-        const successCounts = new Array(7).fill(0);
+        const albatoSuccessCounts = new Array(7).fill(0);
+        const coreSuccessCounts = new Array(7).fill(0);
         const faultCounts = new Array(7).fill(0);
 
         for (const log of logs) {
@@ -41,9 +43,11 @@ export default function AnalyticsChart() {
 
           if (diffDays >= 0) {
             const index = 6 - diffDays;
-            if (log.type === 'SYNC_SUCCESS') {
-              successCounts[index]++;
-            } else if (log.type === 'INGRESS_FAULT' || log.type === 'ENRICHMENT_FAULT' || log.type === 'DISPATCH_FAULT') {
+            if (log.type === 'SYNC_SUCCESS_ALBATO' || log.type === 'SYNC_SUCCESS') {
+              albatoSuccessCounts[index]++;
+            } else if (log.type === 'SYNC_SUCCESS_CORE') {
+              coreSuccessCounts[index]++;
+            } else if (log.type === 'INGRESS_FAULT' || log.type === 'ENRICHMENT_FAULT' || log.type === 'DISPATCH_FAULT' || log.type.startsWith('EGRESS_FAULT')) {
               faultCounts[index]++;
             }
           }
@@ -51,7 +55,8 @@ export default function AnalyticsChart() {
 
         setChartData({
           dates,
-          successData: successCounts,
+          albatoSuccessData: albatoSuccessCounts,
+          coreSuccessData: coreSuccessCounts,
           faultData: faultCounts
         });
       } catch (error) {
@@ -90,19 +95,34 @@ export default function AnalyticsChart() {
     ],
     series: [
       {
-        name: 'Sync Success',
+        name: 'High-Intent (Albato)',
         type: 'line',
         smooth: true,
-        lineStyle: { width: 3, color: '#10b981' },
+        lineStyle: { width: 3, color: '#3b82f6' }, // blue for albato
         showSymbol: false,
         areaStyle: {
           opacity: 0.1,
           color: {
             type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [{ offset: 0, color: '#10b981' }, { offset: 1, color: 'transparent' }]
+            colorStops: [{ offset: 0, color: '#3b82f6' }, { offset: 1, color: 'transparent' }]
           }
         },
-        data: chartData.successData
+        data: chartData.albatoSuccessData
+      },
+      {
+        name: 'Bulk Volume (Core)',
+        type: 'line',
+        smooth: true,
+        lineStyle: { width: 3, color: '#a855f7' }, // purple for core
+        showSymbol: false,
+        areaStyle: {
+          opacity: 0.1,
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [{ offset: 0, color: '#a855f7' }, { offset: 1, color: 'transparent' }]
+          }
+        },
+        data: chartData.coreSuccessData
       },
       {
         name: 'Ingress Faults',

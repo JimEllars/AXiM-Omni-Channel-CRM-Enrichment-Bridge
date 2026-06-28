@@ -67,6 +67,7 @@ export default function RecoveryCenter({ onRetrySuccess }) {
             <tr>
               <th className="px-6 py-4">Origin</th>
               <th className="px-6 py-4">Reason</th>
+              <th className="px-6 py-4">Destination</th>
               <th className="px-6 py-4">Payload Preview</th>
               <th className="px-6 py-4 text-right">Actions</th>
             </tr>
@@ -75,11 +76,11 @@ export default function RecoveryCenter({ onRetrySuccess }) {
             <AnimatePresence>
               {loading ? (
                 <tr>
-                  <td colSpan="4" className="px-6 py-20 text-center text-slate-600 animate-pulse">Loading recovery queue...</td>
+                  <td colSpan="5" className="px-6 py-20 text-center text-slate-600 animate-pulse">Loading recovery queue...</td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan="4" className="px-6 py-20 text-center text-slate-600 italic">Queue is currently empty.</td>
+                  <td colSpan="5" className="px-6 py-20 text-center text-slate-600 italic">Queue is currently empty.</td>
                 </tr>
               ) : (
                 items.map((item) => (
@@ -99,6 +100,20 @@ export default function RecoveryCenter({ onRetrySuccess }) {
                       <div className="flex items-center gap-2 text-red-400 text-xs font-medium">
                         <SafeIcon icon={FiAlertCircle} /> {item.reason}
                       </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      {(() => {
+                        let dest = 'Unknown';
+                        try {
+                          const parsed = JSON.parse(item.payload);
+                          dest = parsed.destination || (item.reason.includes('Albato') ? 'Albato' : (item.reason.includes('Core') ? 'Core' : 'Unknown'));
+                        } catch(e) {
+                          dest = item.reason.includes('Albato') ? 'Albato' : (item.reason.includes('Core') ? 'Core' : 'Unknown');
+                        }
+                        if (dest === 'Albato') return <span className="px-2 py-0.5 rounded text-[10px] font-bold border bg-blue-900 text-blue-300 border-blue-700">Sales CRM</span>;
+                        if (dest === 'Core') return <span className="px-2 py-0.5 rounded text-[10px] font-bold border bg-purple-900 text-purple-300 border-purple-700">AXiM Core</span>;
+                        return <span className="px-2 py-0.5 rounded text-[10px] font-bold border bg-slate-800 text-slate-300 border-slate-700">{dest}</span>;
+                      })()}
                     </td>
                     <td className="px-6 py-4">
                       <code className="text-[10px] text-slate-500 truncate max-w-[200px] block">
