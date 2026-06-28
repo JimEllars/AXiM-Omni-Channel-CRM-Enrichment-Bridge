@@ -43,7 +43,7 @@ export default function AnalyticsChart() {
             const index = 6 - diffDays;
             if (log.type === 'SYNC_SUCCESS') {
               successCounts[index]++;
-            } else if (log.type === 'INGRESS_FAULT' || log.type === 'ENRICHMENT_FAULT') {
+            } else if (log.type === 'INGRESS_FAULT' || log.type === 'ENRICHMENT_FAULT' || log.type === 'DISPATCH_FAULT') {
               faultCounts[index]++;
             }
           }
