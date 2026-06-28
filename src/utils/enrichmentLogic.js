@@ -14,7 +14,8 @@ const getApiKey = () => {
   return '';
 };
 
-// Real third-party API call
+
+// Real third-party API call with robust fetch, retries, exponential backoff, and 3-second timeout
 async function thirdPartyEnrichment(provider, data) {
   const apiKey = getApiKey();
 
@@ -39,30 +40,41 @@ async function thirdPartyEnrichment(provider, data) {
     method = 'POST';
     body = JSON.stringify({ first_name: data.first_name, last_name: data.last_name, organization_name: data.company });
   } else if (provider === 'linkedin') {
-     // Mocking linkedin for now, as it requires a specific scraping setup, keeping the interface ready
+     // Mocking linkedin for now
     return { mock_enriched: true };
   } else {
     throw new Error(`Unknown provider: ${provider}`);
   }
 
-  const response = await fetch(url, { method, headers, body });
+  const retries = 3;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const fetchPromise = fetch(url, { method, headers, body });
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout: 3000ms')), 3000)
+      );
 
-  if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
+
+      if (response.ok) {
+        return await response.json();
+      }
+
+      if (response.status === 429 && attempt < retries) {
+        const waitTime = Math.pow(2, attempt) * 1000;
+        await new Promise(res => setTimeout(res, waitTime));
+        continue;
+      }
+
+      throw new Error(`${response.status} ${response.statusText}`);
+    } catch (error) {
+      if (attempt === retries || !error.message.includes('429')) {
+        throw error;
+      }
+      const waitTime = Math.pow(2, attempt) * 1000;
+      await new Promise(res => setTimeout(res, waitTime));
+    }
   }
-
-  return response.json();
-}
-
-// Timeout wrapper
-function withTimeout(promise, ms) {
-  let timeout;
-  const timeoutPromise = new Promise((_, reject) => {
-    timeout = setTimeout(() => {
-      reject(new Error(`Operation timed out after ${ms} ms`));
-    }, ms);
-  });
-  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeout));
 }
 
 export async function enrichRecord(record) {
@@ -85,7 +97,7 @@ export async function enrichRecord(record) {
       triggerCondition: 'MISSING_EMAIL'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(withTimeout(thirdPartyEnrichment(action.provider, record), 4000));
+    pendingCalls.push(thirdPartyEnrichment(action.provider, record));
   }
 
   // Missing Phone -> Apollo Scraping Protocol
@@ -99,7 +111,7 @@ export async function enrichRecord(record) {
       triggerCondition: 'MISSING_PHONE'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(withTimeout(thirdPartyEnrichment(action.provider, record), 4000));
+    pendingCalls.push(thirdPartyEnrichment(action.provider, record));
   }
 
   // Check for missing company
@@ -112,7 +124,7 @@ export async function enrichRecord(record) {
       status: 'pending'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(withTimeout(thirdPartyEnrichment(action.provider, record), 4000));
+    pendingCalls.push(thirdPartyEnrichment(action.provider, record));
   }
 
   // Check for missing LinkedIn URL
@@ -125,7 +137,7 @@ export async function enrichRecord(record) {
       status: 'pending'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(withTimeout(thirdPartyEnrichment(action.provider, record), 4000));
+    pendingCalls.push(thirdPartyEnrichment(action.provider, record));
   }
 
   // Check for missing company size (example of workflow trigger)
@@ -138,7 +150,7 @@ export async function enrichRecord(record) {
           status: 'pending'
       };
       result.enrichmentActions.push(action);
-      pendingCalls.push(withTimeout(thirdPartyEnrichment(action.provider, record), 4000));
+      pendingCalls.push(thirdPartyEnrichment(action.provider, record));
   }
 
   if (pendingCalls.length > 0) {

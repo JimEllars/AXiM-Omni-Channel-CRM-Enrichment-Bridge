@@ -17,7 +17,7 @@ def run_cuj(page):
     page.wait_for_timeout(500)
 
     # Click on "Monitoring"
-    page.get_by_role("button", name="Monitoring").click()
+    page.get_by_role("button", name="Logs").click()
     page.wait_for_timeout(1000)
 
     # Take screenshot of Monitoring logs
@@ -25,7 +25,7 @@ def run_cuj(page):
     page.wait_for_timeout(500)
 
     # Click on "Importer"
-    page.get_by_role("button", name="Data Importer").click()
+    page.get_by_role("button", name="Upload").click()
     page.wait_for_timeout(1000)
 
     # Take screenshot of Data Importer

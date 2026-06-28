@@ -1,7 +1,60 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
+import { logService } from '../services/logService';
 
 export default function AnalyticsChart() {
+  const [chartData, setChartData] = useState({
+    dates: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '23:59'],
+    successData: [0, 0, 0, 0, 0, 0, 0],
+    faultData: [0, 0, 0, 0, 0, 0, 0]
+  });
+
+  useEffect(() => {
+    const fetchLogs = async () => {
+      try {
+        const logs = await logService.getAll();
+
+        // Lightweight parser for the last 7 days
+        const now = new Date();
+        const dates = [];
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(now);
+          d.setDate(d.getDate() - i);
+          dates.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+        }
+
+        const successCounts = new Array(7).fill(0);
+        const faultCounts = new Array(7).fill(0);
+
+        logs.forEach(log => {
+          if (!log.created_at) return;
+          const logDate = new Date(log.created_at);
+          const diffTime = Math.abs(now - logDate);
+          const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+          if (diffDays < 7) {
+            const index = 6 - diffDays;
+            if (log.type === 'SYNC_SUCCESS') {
+              successCounts[index]++;
+            } else if (log.type === 'INGRESS_FAULT') {
+              faultCounts[index]++;
+            }
+          }
+        });
+
+        setChartData({
+          dates,
+          successData: successCounts,
+          faultData: faultCounts
+        });
+      } catch (error) {
+        console.error("Failed to fetch logs for analytics", error);
+      }
+    };
+
+    fetchLogs();
+  }, []);
+
   const option = {
     backgroundColor: 'transparent',
     tooltip: {
@@ -16,7 +69,7 @@ export default function AnalyticsChart() {
       {
         type: 'category',
         boundaryGap: false,
-        data: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '23:59'],
+        data: chartData.dates,
         axisLine: { lineStyle: { color: '#334155' } },
         axisLabel: { color: '#64748b', fontSize: 10 }
       }
@@ -30,22 +83,7 @@ export default function AnalyticsChart() {
     ],
     series: [
       {
-        name: 'Ingress Throughput',
-        type: 'line',
-        smooth: true,
-        lineStyle: { width: 3, color: '#3b82f6' },
-        showSymbol: false,
-        areaStyle: {
-          opacity: 0.1,
-          color: {
-            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [{ offset: 0, color: '#3b82f6' }, { offset: 1, color: 'transparent' }]
-          }
-        },
-        data: [120, 132, 101, 134, 90, 230, 210]
-      },
-      {
-        name: 'Cleaned Leads',
+        name: 'Sync Success',
         type: 'line',
         smooth: true,
         lineStyle: { width: 3, color: '#10b981' },
@@ -57,7 +95,22 @@ export default function AnalyticsChart() {
             colorStops: [{ offset: 0, color: '#10b981' }, { offset: 1, color: 'transparent' }]
           }
         },
-        data: [100, 110, 80, 120, 70, 210, 190]
+        data: chartData.successData
+      },
+      {
+        name: 'Ingress Faults',
+        type: 'line',
+        smooth: true,
+        lineStyle: { width: 3, color: '#ef4444' }, // red for faults
+        showSymbol: false,
+        areaStyle: {
+          opacity: 0.1,
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [{ offset: 0, color: '#ef4444' }, { offset: 1, color: 'transparent' }]
+          }
+        },
+        data: chartData.faultData
       }
     ]
   };
