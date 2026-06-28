@@ -137,7 +137,7 @@ async function processInBatches(env, source, rawRecords) {
         successCount = cleanRecords.length;
       }
 
-      await logTelemetry(env, 'SYNC_SUCCESS', 'INFO', `[BATCH IMPORT] Processed: ${chunk.length} | Success: ${successCount} | Enrichment Fails: ${enrichmentFailCount}`);
+      await logTelemetry(env, 'BATCH_SUMMARY', 'INFO', `[BATCH IMPORT] Processed: ${chunk.length} | Success: ${successCount} | Enrichment Fails: ${enrichmentFailCount}`);
     } catch (error) {
       await logTelemetry(env, 'BATCH_PROCESS_FAULT', 'HIGH', `Error in batch ${i / BATCH_SIZE}: ${error.message}`);
     }
@@ -146,65 +146,123 @@ async function processInBatches(env, source, rawRecords) {
 
 async function processAndDispatch(env, source, records) {
   try {
+     // Align CRM Schema for Deskera
+     const mappedRecords = formatForDeskera(records);
+
      // A. Deduplication Check (Using Cloudflare KV)
      const uniqueRecords = [];
-     for (const record of records) {
-         if (env.LEAD_KV) {
-           const isDuplicate = await env.LEAD_KV.get(`lead:${record.email}`);
+     for (const record of mappedRecords) {
+         if (env.LEAD_KV && record.email) {
+           const emailKey = record.email.toLowerCase().trim();
+           const isDuplicate = await env.LEAD_KV.get(`lead:${emailKey}`);
            if (isDuplicate) {
-               await logTelemetry(env, 'DUPLICATE_CAUGHT', 'INFO', `Duplicate record caught for email: ${record.email}`);
+               await logTelemetry(env, 'DUPLICATE_CAUGHT', 'INFO', `Duplicate record caught for email: ${emailKey}`);
            } else {
                uniqueRecords.push(record);
-               // We don't save to KV here. We wait for 200 OK from Albato.
            }
          } else {
            uniqueRecords.push(record);
          }
      }
 
-
      if (uniqueRecords.length === 0) return;
 
-     // Align CRM Schema for Deskera
-     const deskeraRecords = formatForDeskera(uniqueRecords);
+     // B. Multiplex Dispatch
 
-     // B. Dispatch to Albato
-
-     let webhookUrl = env.ALBATO_WEBHOOK_URL || 'https://h.albato.com/wh/placeholder';
+     // Fetch URLs
+     let albatoWebhookUrl = env.ALBATO_WEBHOOK_URL || 'https://h.albato.com/wh/placeholder';
+     let coreRestUrl = env.AXIM_CORE_REST_URL || 'https://api.axim.us.com/v1/bulk/ingest';
      if (env.LEAD_KV) {
        const kvUrl = await env.LEAD_KV.get('config:egress_url');
        if (kvUrl) {
          try {
-           webhookUrl = JSON.parse(kvUrl);
+           albatoWebhookUrl = JSON.parse(kvUrl);
          } catch {
-           webhookUrl = kvUrl;
+           albatoWebhookUrl = kvUrl;
+         }
+       }
+       const coreUrl = await env.LEAD_KV.get('config:core_rest_url');
+       if (coreUrl) {
+         try {
+           coreRestUrl = JSON.parse(coreUrl);
+         } catch {
+           coreRestUrl = coreUrl;
          }
        }
      }
 
-     const albatoPayload = {
+     const dispatchPayload = {
          metadata: { source: source, processed_at: new Date().toISOString() },
-         data: deskeraRecords
+         data: uniqueRecords
      };
 
-     const albatoRes = await fetch(webhookUrl, {
-         method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify(albatoPayload)
-     });
+     let albatoSuccess = false;
+     let coreSuccess = false;
 
-     if (!albatoRes.ok) {
-         // Include both uniqueRecords (original sanitized) and albatoPayload (mapped)
-         await logToRecovery(env, source, "Albato 500/Rejection", {
-           original: uniqueRecords,
-           mapped: albatoPayload
+     // 1. Dispatch to Albato (Sales CRM)
+     try {
+       const albatoRes = await fetch(albatoWebhookUrl, {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify(dispatchPayload)
+       });
+
+       if (!albatoRes.ok) {
+           await logToRecovery(env, source, "Albato 500/Rejection", {
+             destination: 'Albato',
+             original: records,
+             mapped: dispatchPayload
+           });
+           await logTelemetry(env, 'EGRESS_FAULT_ALBATO', 'HIGH', `Albato rejection: ${albatoRes.status}`);
+       } else {
+           albatoSuccess = true;
+           await logTelemetry(env, 'SYNC_SUCCESS_ALBATO', 'INFO', `Successfully synced ${uniqueRecords.length} records to Albato`);
+       }
+     } catch (e) {
+         await logToRecovery(env, source, "Albato Network Error", {
+             destination: 'Albato',
+             original: records,
+             mapped: dispatchPayload
          });
-         throw new Error(`Albato rejection: ${albatoRes.status}`);
-     } else {
-         // Only save to KV after 200 OK
-         if (env.LEAD_KV) {
-             for (const record of uniqueRecords) {
-                 await env.LEAD_KV.put(`lead:${record.email}`, "true", { expirationTtl: 2592000 });
+         await logTelemetry(env, 'EGRESS_FAULT_ALBATO', 'HIGH', `Albato dispatch failed: ${e.message}`);
+     }
+
+     // 2. Dispatch to AXiM Core (Bulk Volume)
+     try {
+       const coreRes = await fetch(coreRestUrl, {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}` },
+           body: JSON.stringify(dispatchPayload)
+       });
+
+       if (!coreRes.ok) {
+           await logToRecovery(env, source, "Core 500/Rejection", {
+             destination: 'Core',
+             original: records,
+             mapped: dispatchPayload
+           });
+           await logTelemetry(env, 'EGRESS_FAULT_CORE', 'HIGH', `Core rejection: ${coreRes.status}`);
+       } else {
+           coreSuccess = true;
+           await logTelemetry(env, 'SYNC_SUCCESS_CORE', 'INFO', `Successfully synced ${uniqueRecords.length} records to AXiM Core`);
+       }
+     } catch (e) {
+         await logToRecovery(env, source, "Core Network Error", {
+             destination: 'Core',
+             original: records,
+             mapped: dispatchPayload
+         });
+         await logTelemetry(env, 'EGRESS_FAULT_CORE', 'HIGH', `Core dispatch failed: ${e.message}`);
+     }
+
+     // Only save to KV after 200 OK from either destination
+     if (env.LEAD_KV && (albatoSuccess || coreSuccess)) {
+         for (const record of uniqueRecords) {
+             if (record.email) {
+                 const emailKey = record.email.toLowerCase().trim();
+                 // waitUntil allows fire and forget for KV put
+                 // wait, ctx isn't available here, so we await
+                 await env.LEAD_KV.put(`lead:${emailKey}`, "true", { expirationTtl: 2592000 });
              }
          }
      }
