@@ -1,3 +1,4 @@
+import { logTelemetry } from './telemetry.js';
 
 /**
  * Asynchronous Enrichment Service Layer
@@ -57,7 +58,11 @@ async function thirdPartyEnrichment(provider, data) {
       const response = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (response.ok) {
-        return await response.json();
+        try {
+          return await response.json();
+        } catch (jsonErr) {
+          throw new Error(`JSON_PARSE_ERROR: Failed to parse response from ${provider}`);
+        }
       }
 
       if (response.status === 429 && attempt < retries) {
@@ -68,7 +73,7 @@ async function thirdPartyEnrichment(provider, data) {
 
       throw new Error(`${response.status} ${response.statusText}`);
     } catch (error) {
-      if (attempt === retries || !error.message.includes('429')) {
+      if (attempt === retries || (!error.message.includes('429') && !error.message.includes('Timeout') && !error.message.includes('fetch'))) {
         throw error;
       }
       const waitTime = Math.pow(2, attempt) * 1000;
@@ -77,7 +82,7 @@ async function thirdPartyEnrichment(provider, data) {
   }
 }
 
-export async function enrichRecord(record) {
+export async function enrichRecord(env, record) {
   let result = {
     ...record,
     enrichmentQueued: false,
@@ -161,6 +166,10 @@ export async function enrichRecord(record) {
       // Gracefully handle fail-open requirements
       result._enrichment_failed = true;
       result._enrichment_error = e.message;
+      if (env) {
+        // Only log telemetry if env is available (which it should be now)
+        await logTelemetry(env, 'ENRICHMENT_FAULT', 'HIGH', `Enrichment failed: ${e.message}`);
+      }
     }
   }
 

@@ -26,21 +26,28 @@ export default function AnalyticsChart() {
         const successCounts = new Array(7).fill(0);
         const faultCounts = new Array(7).fill(0);
 
-        logs.forEach(log => {
-          if (!log.created_at) return;
+        for (const log of logs) {
+          if (!log.created_at) continue;
           const logDate = new Date(log.created_at);
-          const diffTime = Math.abs(now - logDate);
+          const diffTime = now.getTime() - logDate.getTime();
           const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
-          if (diffDays < 7) {
+          // Logs are fetched newest first (from logService.js: .reverse())
+          // If we encounter a log older than 7 days, we can stop processing entirely
+          // since all subsequent logs will be even older.
+          if (diffDays >= 7) {
+            break;
+          }
+
+          if (diffDays >= 0) {
             const index = 6 - diffDays;
             if (log.type === 'SYNC_SUCCESS') {
               successCounts[index]++;
-            } else if (log.type === 'INGRESS_FAULT') {
+            } else if (log.type === 'INGRESS_FAULT' || log.type === 'ENRICHMENT_FAULT') {
               faultCounts[index]++;
             }
           }
-        });
+        }
 
         setChartData({
           dates,

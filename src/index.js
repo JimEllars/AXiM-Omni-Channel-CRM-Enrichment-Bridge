@@ -124,7 +124,7 @@ async function processInBatches(env, source, rawRecords) {
       for (const record of chunk) {
         const sanitized = sanitizeLeadData(record);
         if (sanitized.isValid) {
-          const enriched = await enrichRecord(sanitized);
+          const enriched = await enrichRecord(env, sanitized);
           if (enriched._enrichment_failed) {
             enrichmentFailCount++;
           }
@@ -151,9 +151,11 @@ async function processAndDispatch(env, source, records) {
      for (const record of records) {
          if (env.LEAD_KV) {
            const isDuplicate = await env.LEAD_KV.get(`lead:${record.email}`);
-           if (!isDuplicate) {
+           if (isDuplicate) {
+               await logTelemetry(env, 'DUPLICATE_CAUGHT', 'INFO', `Duplicate record caught for email: ${record.email}`);
+           } else {
                uniqueRecords.push(record);
-               await env.LEAD_KV.put(`lead:${record.email}`, "true", { expirationTtl: 2592000 }); 
+               // We don't save to KV here. We wait for 200 OK from Albato.
            }
          } else {
            uniqueRecords.push(record);
@@ -192,8 +194,19 @@ async function processAndDispatch(env, source, records) {
      });
 
      if (!albatoRes.ok) {
-         await logToRecovery(env, source, "Albato 500/Rejection", albatoPayload);
+         // Include both uniqueRecords (original sanitized) and albatoPayload (mapped)
+         await logToRecovery(env, source, "Albato 500/Rejection", {
+           original: uniqueRecords,
+           mapped: albatoPayload
+         });
          throw new Error(`Albato rejection: ${albatoRes.status}`);
+     } else {
+         // Only save to KV after 200 OK
+         if (env.LEAD_KV) {
+             for (const record of uniqueRecords) {
+                 await env.LEAD_KV.put(`lead:${record.email}`, "true", { expirationTtl: 2592000 });
+             }
+         }
      }
 
   } catch (error) {
