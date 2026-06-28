@@ -96,15 +96,10 @@ export default {
   // SCHEDULED: Cron Trigger Handler for Database Sweeps
   async scheduled(event, env, ctx) {
     try {
-      if (env.LEAD_KV) {
-        const config = await env.LEAD_KV.get('config:cron_config') || 'default_config';
-        const { logToSheets } = await import('./utils/workerSheets.js');
-        await logToSheets(env, '[CRON RUN]', 'INFO', `Nightly sync executed with config: ${config}`);
-      }
+      await logTelemetry(env, 'CRON RUN', 'INFO', 'Nightly sync executed');
     } catch (error) {
       console.error('Cron job error:', error);
     }
-    ctx.waitUntil(performDatabaseSweep(env));
   }
 };
 
@@ -146,12 +141,9 @@ async function processInBatches(env, source, rawRecords) {
 
 async function processAndDispatch(env, source, records) {
   try {
-     // Align CRM Schema for Deskera
-     const mappedRecords = formatForDeskera(records);
-
      // A. Deduplication Check (Using Cloudflare KV)
      const uniqueRecords = [];
-     for (const record of mappedRecords) {
+     for (const record of records) {
          if (env.LEAD_KV && record.email) {
            const emailKey = record.email.toLowerCase().trim();
            const isDuplicate = await env.LEAD_KV.get(`lead:${emailKey}`);
@@ -191,9 +183,12 @@ async function processAndDispatch(env, source, records) {
        }
      }
 
+     // Align CRM Schema for Deskera
+     const mappedRecords = formatForDeskera(uniqueRecords);
+
      const dispatchPayload = {
          metadata: { source: source, processed_at: new Date().toISOString() },
-         data: uniqueRecords
+         data: mappedRecords
      };
 
      let albatoSuccess = false;
