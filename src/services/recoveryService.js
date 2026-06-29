@@ -26,6 +26,10 @@ export const recoveryService = {
     await updateRow(`${TAB}!A${rowIndex}:F${rowIndex}`, updated);
   },
 
+  async resolve(id) {
+    return this.remove(id);
+  },
+
   async remove(id) {
     return deleteRow(TAB, id);
   }

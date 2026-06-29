@@ -96,9 +96,59 @@ export default {
   // SCHEDULED: Cron Trigger Handler for Database Sweeps
   async scheduled(event, env, ctx) {
     try {
-      await logTelemetry(env, 'CRON RUN', 'INFO', 'Nightly sync executed');
+      await logTelemetry(env, 'CRON RUN START', 'INFO', 'Nightly sync executed');
+      if (env.LEAD_KV) {
+        // Fetch up to 10 pending keys to respect CPU limits
+        const pending = await env.LEAD_KV.list({ prefix: 'pending_enrichment:', limit: 10 });
+        let processed = 0;
+        let failed = 0;
+
+        if (pending.keys && pending.keys.length > 0) {
+          const recordsToProcess = [];
+
+          for (const keyObj of pending.keys) {
+            try {
+              const payloadStr = await env.LEAD_KV.get(keyObj.name);
+              if (payloadStr) {
+                const payload = JSON.parse(payloadStr);
+                recordsToProcess.push({ key: keyObj.name, payload });
+              }
+            } catch (e) {
+              failed++;
+            }
+          }
+
+          if (recordsToProcess.length > 0) {
+            // Process batches (reuse existing processInBatches/processAndDispatch flow, modified for cron)
+            const cleanRecords = [];
+            for (const { key, payload } of recordsToProcess) {
+              const sanitized = sanitizeLeadData(payload);
+              if (sanitized.isValid) {
+                const enriched = await enrichRecord(env, sanitized);
+                cleanRecords.push(enriched);
+                processed++;
+                // Clean up KV since it's being processed
+                await env.LEAD_KV.delete(key);
+              } else {
+                failed++;
+              }
+            }
+
+            if (cleanRecords.length > 0) {
+              // Pass context if available for waitUntil
+              await processAndDispatch(env, 'cron_sweep', cleanRecords, ctx);
+            }
+          }
+        }
+
+        const remainingList = await env.LEAD_KV.list({ prefix: 'pending_enrichment:', limit: 1000 }); // estimate remaining
+        const remaining = remainingList.keys ? remainingList.keys.length : 0;
+
+        await logTelemetry(env, 'CRON RUN', 'INFO', `[CRON RUN] Processed: ${processed} | Remaining: ${remaining} | Failed: ${failed}`);
+      }
     } catch (error) {
       console.error('Cron job error:', error);
+      await logTelemetry(env, 'CRON FAULT', 'HIGH', 'Nightly sync failed: ' + error.message);
     }
   }
 };

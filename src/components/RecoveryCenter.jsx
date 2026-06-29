@@ -25,19 +25,60 @@ export default function RecoveryCenter({ onRetrySuccess }) {
     }
   };
 
-  const handleRetry = async (item) => {
+  const handleRetry = async (item, customPayload = null) => {
     try {
-      const payload = JSON.parse(item.payload);
+      const payloadString = customPayload || item.payload;
+      let payload;
+      try {
+        payload = JSON.parse(payloadString);
+      } catch (e) {
+        alert("Invalid JSON format. Please check your syntax.");
+        return;
+      }
+
       const result = sanitizeLeadData(payload);
       if (result.isValid) {
-        await recoveryService.remove(item.id);
-        setItems(items.filter(i => i.id !== item.id));
-        if (onRetrySuccess) onRetrySuccess(result);
+        // Send a POST request to the ingress to actually retry
+        const response = await fetch('/v1/webhooks/enrich', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            // Ideally auth header is passed here if needed, or proxy handles it
+          },
+          body: JSON.stringify({
+             source: item.source || 'dlq_retry',
+             records: [payload]
+          })
+        });
+
+        if (response.ok || response.status === 202) {
+          await recoveryService.resolve(item.id);
+          setItems(items.filter(i => i.id !== item.id));
+          if (onRetrySuccess) onRetrySuccess(result);
+        } else {
+          alert(`Retry failed with status: ${response.status}`);
+        }
       } else {
         alert(`Validation Failed: ${result._error || 'Check fields'}`);
       }
     } catch (e) {
-      alert("Invalid JSON payload");
+      alert("Error processing retry: " + e.message);
+    }
+  };
+
+  const handleSaveAndRetry = async () => {
+    try {
+      // Validate JSON first
+      JSON.parse(editPayload);
+
+      // Attempt the retry logic directly with edited payload
+      await handleRetry(editingItem, editPayload);
+
+      // Update local storage in case we still want it updated for next time
+      await recoveryService.update(editingItem.id, editPayload);
+      setEditingItem(null);
+    } catch (e) {
+      alert("Invalid JSON format. Cannot save & retry.");
     }
   };
 
@@ -170,9 +211,15 @@ export default function RecoveryCenter({ onRetrySuccess }) {
                 <button onClick={() => setEditingItem(null)} className="px-4 py-2 text-xs font-bold text-slate-400">CANCEL</button>
                 <button 
                   onClick={handleUpdate}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold flex items-center gap-2"
+                  className="px-6 py-2 bg-slate-700 text-white rounded-lg text-xs font-bold flex items-center gap-2"
                 >
-                  <SafeIcon icon={FiCheck} /> SAVE CHANGES
+                  <SafeIcon icon={FiCheck} /> SAVE
+                </button>
+                <button
+                  onClick={handleSaveAndRetry}
+                  className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold flex items-center gap-2"
+                >
+                  <SafeIcon icon={FiRefreshCw} /> SAVE & RETRY
                 </button>
               </div>
             </div>
