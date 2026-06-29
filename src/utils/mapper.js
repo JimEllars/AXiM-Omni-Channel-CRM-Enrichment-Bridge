@@ -19,6 +19,14 @@ export function formatForDeskera(records) {
       _enrichment_status: record._enrichment_failed ? 'failed' : 'success'
     };
 
+
+    // Pre-Flight Validation Check
+    if (!mapped.email || mapped.email.trim() === '') {
+      mapped._is_invalid = true;
+      mapped._validation_reason = 'Critically missing CRM-required field: email';
+    }
+
     return mapped;
+
   });
 }

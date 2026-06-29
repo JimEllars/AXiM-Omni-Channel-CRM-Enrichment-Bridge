@@ -1,4 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { readFileSync, writeFileSync } from 'fs';
+
+let content = readFileSync('src/components/DuplicateStats.jsx', 'utf8');
+
+const newContent = `import React, { useState, useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { logService } from '../services/logService';
 
@@ -25,19 +29,19 @@ export default function DuplicateStats() {
         const successLogsAlbato = logs.filter(log => log.type === 'SYNC_SUCCESS_ALBATO');
 
         duplicateCount = duplicateLogs.length;
-        // The message in PRE_FLIGHT_VALIDATION_FAILED is "${invalidRecords.length} records failed pre-flight validation."
+        // The message in PRE_FLIGHT_VALIDATION_FAILED is "\${invalidRecords.length} records failed pre-flight validation."
         invalidLogs.forEach(log => {
-          const match = log.msg.match(/^(\d+)/);
+          const match = log.msg.match(/^(\\d+)/);
           if (match) invalidCount += parseInt(match[1], 10);
         });
 
         // We can estimate unique counts from success logs messages
         successLogsCore.forEach(log => {
-           const match = log.msg.match(/synced (\d+) records/);
+           const match = log.msg.match(/synced (\\d+) records/);
            if (match) uniqueCount += parseInt(match[1], 10);
         });
         successLogsAlbato.forEach(log => {
-           const match = log.msg.match(/synced (\d+) records/);
+           const match = log.msg.match(/synced (\\d+) records/);
            if (match) uniqueCount += parseInt(match[1], 10);
         });
         // Remove double counting if both succeed
@@ -109,3 +113,6 @@ export default function DuplicateStats() {
     </div>
   );
 }
+`;
+
+writeFileSync('src/components/DuplicateStats.jsx', newContent, 'utf8');

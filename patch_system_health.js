@@ -1,4 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { readFileSync, writeFileSync } from 'fs';
+
+let content = readFileSync('src/components/SystemHealth.jsx', 'utf8');
+
+const newContent = `import React, { useState, useEffect } from 'react';
 import SafeIcon from '../common/SafeIcon';
 import { FiServer, FiGlobe, FiCpu, FiHardDrive, FiCheckCircle, FiAlertCircle, FiRefreshCw } from 'react-icons/fi';
 import { motion } from 'framer-motion';
@@ -100,7 +104,7 @@ export default function SystemHealth() {
 
   const metrics = [
     { label: 'Edge Nodes', value: '2,401', icon: FiServer },
-    { label: 'Fault Ratio (24h)', value: `${(healthStats.ratio * 100).toFixed(1)}%`, icon: FiCpu },
+    { label: 'Fault Ratio (24h)', value: \`\${(healthStats.ratio * 100).toFixed(1)}%\`, icon: FiCpu },
     { label: 'System Status', value: healthStats.status, icon: statusIcon, color: statusColor },
   ];
 
@@ -117,12 +121,12 @@ export default function SystemHealth() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {metrics.map((m, i) => (
           <div key={i} className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl flex items-center gap-4 shadow-lg group hover:border-slate-700 transition-all">
-            <div className={`p-3 ${m.color ? m.color.replace('text-', 'bg-').replace('400', '500/10') : 'bg-blue-500/10'} rounded-xl ${m.color || 'text-blue-400'} group-hover:${m.color ? m.color.replace('text-', 'bg-').replace('400', '600') : 'bg-blue-600'} group-hover:text-white transition-all`}>
+            <div className={\`p-3 \${m.color ? m.color.replace('text-', 'bg-').replace('400', '500/10') : 'bg-blue-500/10'} rounded-xl \${m.color || 'text-blue-400'} group-hover:\${m.color ? m.color.replace('text-', 'bg-').replace('400', '600') : 'bg-blue-600'} group-hover:text-white transition-all\`}>
               <SafeIcon icon={m.icon} />
             </div>
             <div>
               <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest leading-none mb-1">{m.label}</p>
-              <p className={`text-2xl font-black ${m.color || 'text-white'}`}>{m.value}</p>
+              <p className={\`text-2xl font-black \${m.color || 'text-white'}\`}>{m.value}</p>
             </div>
           </div>
         ))}
@@ -139,7 +143,7 @@ export default function SystemHealth() {
           </div>
           <div className="flex items-center gap-4">
             <span className="text-[10px] text-slate-500 font-mono hidden md:block">REPLICATION_FACTOR: 3x</span>
-            <button 
+            <button
               onClick={simulateFailover}
               className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all border border-slate-700"
             >
@@ -152,15 +156,15 @@ export default function SystemHealth() {
           {loading ? (
              <div className="col-span-2 py-12 text-center text-slate-600 animate-pulse font-black uppercase text-xs tracking-[0.2em]">Resolving Global Mesh...</div>
           ) : regions.map((region, i) => (
-            <motion.div 
-              initial={{ opacity: 0, x: -10 }} 
-              animate={{ opacity: 1, x: 0 }} 
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.1 }}
-              key={region.name} 
-              className={`p-5 rounded-2xl border transition-all flex justify-between items-center group ${region.warning ? 'bg-red-500/5 border-red-500/20' : 'bg-slate-950 border-slate-800 hover:border-slate-600'}`}
+              key={region.name}
+              className={\`p-5 rounded-2xl border transition-all flex justify-between items-center group \${region.warning ? 'bg-red-500/5 border-red-500/20' : 'bg-slate-950 border-slate-800 hover:border-slate-600'}\`}
             >
               <div className="flex items-center gap-4">
-                <div className={`p-3 rounded-xl ${region.warning ? 'bg-red-500/20 text-red-400' : 'bg-slate-900 text-blue-400'}`}>
+                <div className={\`p-3 rounded-xl \${region.warning ? 'bg-red-500/20 text-red-400' : 'bg-slate-900 text-blue-400'}\`}>
                    <SafeIcon name={region.icon} className="text-xl" />
                 </div>
                 <div>
@@ -172,7 +176,7 @@ export default function SystemHealth() {
                 </div>
               </div>
               <div className="text-right">
-                <p className={`text-[10px] font-black uppercase tracking-[0.1em] mb-1 ${region.warning ? 'text-red-400' : 'text-emerald-400'}`}>
+                <p className={\`text-[10px] font-black uppercase tracking-[0.1em] mb-1 \${region.warning ? 'text-red-400' : 'text-emerald-400'}\`}>
                   {region.status}
                 </p>
                 <div className="flex items-center justify-end gap-1.5 text-[11px] text-slate-500 font-mono">
@@ -187,3 +191,6 @@ export default function SystemHealth() {
     </div>
   );
 }
+`;
+
+writeFileSync('src/components/SystemHealth.jsx', newContent, 'utf8');
