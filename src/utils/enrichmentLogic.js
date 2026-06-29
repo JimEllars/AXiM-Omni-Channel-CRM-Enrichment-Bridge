@@ -17,7 +17,7 @@ const getApiKey = () => {
 
 
 // Real third-party API call with robust fetch, retries, exponential backoff, and 3-second timeout
-async function thirdPartyEnrichment(provider, data) {
+async function thirdPartyEnrichment(env, provider, data) {
   const apiKey = getApiKey();
 
   if (!apiKey) {
@@ -61,7 +61,12 @@ async function thirdPartyEnrichment(provider, data) {
         try {
           return await response.json();
         } catch (jsonErr) {
-          throw new Error(`JSON_PARSE_ERROR: Failed to parse response from ${provider}`);
+          if (env) {
+            await logTelemetry(env, 'ENRICHMENT_FAULT', 'HIGH', `JSON_PARSE_ERROR: Failed to parse response from ${provider}`);
+          }
+          data._enrichment_failed = true;
+          data._enrichment_error = `JSON_PARSE_ERROR: Failed to parse response from ${provider}`;
+          return data;
         }
       }
 
@@ -102,7 +107,7 @@ export async function enrichRecord(env, record) {
       triggerCondition: 'MISSING_EMAIL'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(thirdPartyEnrichment(action.provider, record));
+    pendingCalls.push(thirdPartyEnrichment(env, action.provider, record));
   }
 
   // Missing Phone -> Apollo Scraping Protocol
@@ -116,7 +121,7 @@ export async function enrichRecord(env, record) {
       triggerCondition: 'MISSING_PHONE'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(thirdPartyEnrichment(action.provider, record));
+    pendingCalls.push(thirdPartyEnrichment(env, action.provider, record));
   }
 
   // Check for missing company
@@ -129,7 +134,7 @@ export async function enrichRecord(env, record) {
       status: 'pending'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(thirdPartyEnrichment(action.provider, record));
+    pendingCalls.push(thirdPartyEnrichment(env, action.provider, record));
   }
 
   // Check for missing LinkedIn URL
@@ -142,7 +147,7 @@ export async function enrichRecord(env, record) {
       status: 'pending'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(thirdPartyEnrichment(action.provider, record));
+    pendingCalls.push(thirdPartyEnrichment(env, action.provider, record));
   }
 
   // Check for missing company size (example of workflow trigger)
@@ -155,7 +160,7 @@ export async function enrichRecord(env, record) {
           status: 'pending'
       };
       result.enrichmentActions.push(action);
-      pendingCalls.push(thirdPartyEnrichment(action.provider, record));
+      pendingCalls.push(thirdPartyEnrichment(env, action.provider, record));
   }
 
   if (pendingCalls.length > 0) {

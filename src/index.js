@@ -77,7 +77,7 @@ export default {
 
         // Out-of-band Processing via ctx.waitUntil
         // Processes array in small chunks (e.g. 50 records at a time) through sanitize and enrich
-        ctx.waitUntil(processInBatches(env, source, records));
+        ctx.waitUntil(processInBatches(env, source, records, ctx));
 
         return new Response(JSON.stringify({ status: 'Accepted', processing_count: records.length }), {
             status: 202,
@@ -105,7 +105,7 @@ export default {
 
 // --- PIPELINE HANDLERS ---
 
-async function processInBatches(env, source, rawRecords) {
+async function processInBatches(env, source, rawRecords, ctx) {
   const BATCH_SIZE = 50;
 
   for (let i = 0; i < rawRecords.length; i += BATCH_SIZE) {
@@ -128,7 +128,7 @@ async function processInBatches(env, source, rawRecords) {
       }
 
       if (cleanRecords.length > 0) {
-        await processAndDispatch(env, source, cleanRecords);
+        await processAndDispatch(env, source, cleanRecords, ctx);
         successCount = cleanRecords.length;
       }
 
@@ -139,7 +139,7 @@ async function processInBatches(env, source, rawRecords) {
   }
 }
 
-async function processAndDispatch(env, source, records) {
+async function processAndDispatch(env, source, records, ctx) {
   try {
      // A. Deduplication Check (Using Cloudflare KV)
      const uniqueRecords = [];
@@ -205,7 +205,7 @@ async function processAndDispatch(env, source, records) {
        if (!albatoRes.ok) {
            await logToRecovery(env, source, "Albato 500/Rejection", {
              destination: 'Albato',
-             original: records,
+             original: uniqueRecords,
              mapped: dispatchPayload
            });
            await logTelemetry(env, 'EGRESS_FAULT_ALBATO', 'HIGH', `Albato rejection: ${albatoRes.status}`);
@@ -216,7 +216,7 @@ async function processAndDispatch(env, source, records) {
      } catch (e) {
          await logToRecovery(env, source, "Albato Network Error", {
              destination: 'Albato',
-             original: records,
+             original: uniqueRecords,
              mapped: dispatchPayload
          });
          await logTelemetry(env, 'EGRESS_FAULT_ALBATO', 'HIGH', `Albato dispatch failed: ${e.message}`);
@@ -233,7 +233,7 @@ async function processAndDispatch(env, source, records) {
        if (!coreRes.ok) {
            await logToRecovery(env, source, "Core 500/Rejection", {
              destination: 'Core',
-             original: records,
+             original: uniqueRecords,
              mapped: dispatchPayload
            });
            await logTelemetry(env, 'EGRESS_FAULT_CORE', 'HIGH', `Core rejection: ${coreRes.status}`);
@@ -244,7 +244,7 @@ async function processAndDispatch(env, source, records) {
      } catch (e) {
          await logToRecovery(env, source, "Core Network Error", {
              destination: 'Core',
-             original: records,
+             original: uniqueRecords,
              mapped: dispatchPayload
          });
          await logTelemetry(env, 'EGRESS_FAULT_CORE', 'HIGH', `Core dispatch failed: ${e.message}`);
@@ -256,8 +256,11 @@ async function processAndDispatch(env, source, records) {
              if (record.email) {
                  const emailKey = record.email.toLowerCase().trim();
                  // waitUntil allows fire and forget for KV put
-                 // wait, ctx isn't available here, so we await
-                 await env.LEAD_KV.put(`lead:${emailKey}`, "true", { expirationTtl: 2592000 });
+                 if (ctx && ctx.waitUntil) {
+                     ctx.waitUntil(env.LEAD_KV.put(`lead:${emailKey}`, "true", { expirationTtl: 2592000 }));
+                 } else {
+                     await env.LEAD_KV.put(`lead:${emailKey}`, "true", { expirationTtl: 2592000 });
+                 }
              }
          }
      }
@@ -288,7 +291,8 @@ async function performDatabaseSweep(env) {
                                       .filter(sanitized => sanitized.isValid);
 
     if (sweepBatches.length > 0) {
-      await processInBatches(env, 'scheduled_sweep', sweepBatches);
+      // pass undefined/null for ctx since it's cron, fallback handles it
+      await processInBatches(env, 'scheduled_sweep', sweepBatches, null);
     }
 
     await logTelemetry(env, 'SWEEP_COMPLETE', 'INFO', `Completed database sweep. Processed ${mockSweepData.length} records.`);
