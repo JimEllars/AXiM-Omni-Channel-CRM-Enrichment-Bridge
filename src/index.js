@@ -186,9 +186,31 @@ async function processAndDispatch(env, source, records, ctx) {
      // Align CRM Schema for Deskera
      const mappedRecords = formatForDeskera(uniqueRecords);
 
+     const validRecords = [];
+     const invalidRecords = [];
+
+     for (const record of mappedRecords) {
+         if (record._is_invalid) {
+             invalidRecords.push(record);
+         } else {
+             validRecords.push(record);
+         }
+     }
+
+     if (invalidRecords.length > 0) {
+         await logToRecovery(env, source, "Pre-Flight Validation Failed", {
+             destination: 'DLQ',
+             original: uniqueRecords.filter((_, i) => mappedRecords[i]._is_invalid),
+             mapped: invalidRecords
+         });
+         await logTelemetry(env, 'PRE_FLIGHT_VALIDATION_FAILED', 'HIGH', `${invalidRecords.length} records failed pre-flight validation.`);
+     }
+
+     if (validRecords.length === 0) return;
+
      const dispatchPayload = {
          metadata: { source: source, processed_at: new Date().toISOString() },
-         data: mappedRecords
+         data: validRecords
      };
 
      let albatoSuccess = false;
