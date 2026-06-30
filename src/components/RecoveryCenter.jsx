@@ -10,6 +10,7 @@ export default function RecoveryCenter({ onRetrySuccess }) {
   const [editingItem, setEditingItem] = useState(null);
   const [editPayload, setEditPayload] = useState('');
   const [loading, setLoading] = useState(true);
+  const [retryingId, setRetryingId] = useState(null);
 
   useEffect(() => {
     loadItems();
@@ -26,18 +27,38 @@ export default function RecoveryCenter({ onRetrySuccess }) {
   };
 
   const handleRetry = async (item) => {
+    setRetryingId(item.id);
     try {
       const payload = JSON.parse(item.payload);
       const result = sanitizeLeadData(payload);
       if (result.isValid) {
-        await recoveryService.remove(item.id);
-        setItems(items.filter(i => i.id !== item.id));
-        if (onRetrySuccess) onRetrySuccess(result);
+        const response = await fetch('/v1/webhooks/enrich', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${import.meta.env.VITE_AXIM_INTERNAL_KEY}`
+          },
+          body: JSON.stringify({ source: 'dlq_retry', records: [result] })
+        });
+
+        if (response.status === 202) {
+          await recoveryService.remove(item.id);
+          setItems(items.filter(i => i.id !== item.id));
+          if (onRetrySuccess) onRetrySuccess(result);
+          // Optional toast
+          // alert(`Successfully re-queued payload for ID: ${item.id}`);
+        } else {
+           const errText = await response.text();
+           alert(`Failed to retry: ${response.status} ${errText}`);
+        }
       } else {
         alert(`Validation Failed: ${result._error || 'Check fields'}`);
       }
     } catch (e) {
+      console.error(e);
       alert("Invalid JSON payload");
+    } finally {
+      setRetryingId(null);
     }
   };
 
@@ -130,9 +151,10 @@ export default function RecoveryCenter({ onRetrySuccess }) {
                         </button>
                         <button 
                           onClick={() => handleRetry(item)}
-                          className="p-2 bg-slate-800 hover:bg-emerald-600/20 text-slate-400 hover:text-emerald-400 rounded-lg transition-colors"
+                          disabled={retryingId === item.id}
+                          className="p-2 bg-slate-800 hover:bg-emerald-600/20 text-slate-400 hover:text-emerald-400 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
                         >
-                          <SafeIcon icon={FiRefreshCw} />
+                          {retryingId === item.id ? <span className="text-[10px] animate-pulse">Retrying...</span> : <SafeIcon icon={FiRefreshCw} />}
                         </button>
                         <button 
                           onClick={() => handleDelete(item.id)}

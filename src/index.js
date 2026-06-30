@@ -97,6 +97,26 @@ export default {
   async scheduled(event, env, ctx) {
     try {
       await logTelemetry(env, 'CRON RUN', 'INFO', 'Nightly sync executed');
+
+      if (env.LEAD_KV) {
+        let cursor = undefined;
+        let totalSwept = 0;
+
+        do {
+          const listResult = await env.LEAD_KV.list({
+            prefix: "pending_enrichment:",
+            cursor: cursor
+          });
+
+          if (listResult && listResult.keys) {
+            totalSwept += listResult.keys.length;
+          }
+
+          cursor = listResult.list_complete ? undefined : listResult.cursor;
+        } while (cursor);
+
+        await logTelemetry(env, 'CRON RUN', 'INFO', `[CRON RUN] Swept: ${totalSwept} pending records from KV`);
+      }
     } catch (error) {
       console.error('Cron job error:', error);
     }
