@@ -11,6 +11,9 @@ export default function RecoveryCenter({ onRetrySuccess }) {
   const [editPayload, setEditPayload] = useState('');
   const [loading, setLoading] = useState(true);
   const [retryingId, setRetryingId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [isBulkRetrying, setIsBulkRetrying] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
 
   useEffect(() => {
     loadItems();
@@ -26,7 +29,46 @@ export default function RecoveryCenter({ onRetrySuccess }) {
     }
   };
 
-  const handleRetry = async (item) => {
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      setSelectedIds(items.map(i => i.id));
+    } else {
+      setSelectedIds([]);
+    }
+  };
+
+  const handleSelect = (id) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkRetry = async () => {
+    if (selectedIds.length === 0) return;
+
+    setIsBulkRetrying(true);
+    setBulkProgress({ current: 0, total: selectedIds.length });
+
+    let currentItems = [...items];
+
+    for (let i = 0; i < selectedIds.length; i++) {
+      const id = selectedIds[i];
+      const item = currentItems.find(i => i.id === id);
+      if (item) {
+        await handleRetry(item, true); // true for bulk flag to avoid full UI reload
+        setBulkProgress(prev => ({ ...prev, current: i + 1 }));
+        // wait 500ms to avoid rate limits
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    setSelectedIds([]);
+    setIsBulkRetrying(false);
+    setBulkProgress({ current: 0, total: 0 });
+    loadItems(); // reload from source after bulk
+  };
+
+  const handleRetry = async (item, isBulk = false) => {
     setRetryingId(item.id);
     try {
       const payload = JSON.parse(item.payload);
@@ -43,7 +85,9 @@ export default function RecoveryCenter({ onRetrySuccess }) {
 
         if (response.status === 202) {
           await recoveryService.remove(item.id);
-          setItems(items.filter(i => i.id !== item.id));
+          if (!isBulk) {
+            setItems(prev => prev.filter(i => i.id !== item.id));
+          }
           if (onRetrySuccess) onRetrySuccess(result);
           // Optional toast
           // alert(`Successfully re-queued payload for ID: ${item.id}`);
@@ -80,12 +124,38 @@ export default function RecoveryCenter({ onRetrySuccess }) {
           <h3 className="text-white font-bold text-xl tracking-tight">Dead Letter Queue</h3>
           <p className="text-slate-500 text-xs mt-1">Manual intervention required for {items.length} failed records.</p>
         </div>
+        {selectedIds.length > 0 && (
+          <div className="flex items-center gap-4">
+            {isBulkRetrying && (
+              <span className="text-slate-400 text-xs font-mono">
+                Retrying {bulkProgress.current} of {bulkProgress.total}...
+              </span>
+            )}
+            <button
+              onClick={handleBulkRetry}
+              disabled={isBulkRetrying}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-2"
+            >
+              <SafeIcon icon={FiRefreshCw} className={isBulkRetrying ? "animate-spin" : ""} />
+              {isBulkRetrying ? "PROCESSING..." : `RETRY SELECTED (${selectedIds.length})`}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl overflow-x-auto">
         <table className="w-full text-left">
           <thead className="sticky top-0 z-10 bg-slate-900 text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-800">
             <tr>
+              <th className="px-6 py-4 w-12">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.length === items.length && items.length > 0}
+                  onChange={handleSelectAll}
+                  disabled={items.length === 0 || isBulkRetrying}
+                  className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-blue-500"
+                />
+              </th>
               <th className="px-6 py-4">Origin</th>
               <th className="px-6 py-4">Reason</th>
               <th className="px-6 py-4">Destination</th>
@@ -97,11 +167,11 @@ export default function RecoveryCenter({ onRetrySuccess }) {
             <AnimatePresence>
               {loading ? (
                 <tr>
-                  <td colSpan="5" className="px-6 py-20 text-center text-slate-600 animate-pulse">Loading recovery queue...</td>
+                  <td colSpan="6" className="px-6 py-20 text-center text-slate-600 animate-pulse">Loading recovery queue...</td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="px-6 py-20 text-center text-slate-600 italic">Queue is currently empty.</td>
+                  <td colSpan="6" className="px-6 py-20 text-center text-slate-600 italic">Queue is currently empty.</td>
                 </tr>
               ) : (
                 items.map((item) => (
@@ -111,8 +181,17 @@ export default function RecoveryCenter({ onRetrySuccess }) {
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0, x: 20 }}
                     key={item.id} 
-                    className="hover:bg-slate-800/20 group transition-colors"
+                    className={`hover:bg-slate-800/20 group transition-colors ${selectedIds.includes(item.id) ? 'bg-slate-800/40' : ''}`}
                   >
+                    <td className="px-6 py-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(item.id)}
+                        onChange={() => handleSelect(item.id)}
+                        disabled={isBulkRetrying}
+                        className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-blue-500"
+                      />
+                    </td>
                     <td className="px-6 py-4">
                       <div className="text-blue-400 font-mono text-[10px]">{item.id}</div>
                       <div className="text-[11px] text-slate-400 font-bold">{item.source}</div>

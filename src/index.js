@@ -166,7 +166,13 @@ async function processAndDispatch(env, source, records, ctx) {
      for (const record of records) {
          if (env.LEAD_KV && record.email) {
            const emailKey = record.email.toLowerCase().trim();
-           const isDuplicate = await env.LEAD_KV.get(`lead:${emailKey}`);
+           let isDuplicate = false;
+           try {
+               isDuplicate = await env.LEAD_KV.get(`lead:${emailKey}`);
+           } catch (kvError) {
+               await logTelemetry(env, 'KV_READ_FAULT', 'HIGH', `Failed to check deduplication for ${emailKey}: ${kvError.message}. Failing open.`);
+               // Failing open, so keep isDuplicate as false
+           }
            if (isDuplicate) {
                await logTelemetry(env, 'DUPLICATE_CAUGHT', 'INFO', `Duplicate record caught for email: ${emailKey}`);
            } else {
@@ -298,10 +304,24 @@ async function processAndDispatch(env, source, records, ctx) {
              if (record.email) {
                  const emailKey = record.email.toLowerCase().trim();
                  // waitUntil allows fire and forget for KV put
-                 if (ctx && ctx.waitUntil) {
-                     ctx.waitUntil(env.LEAD_KV.put(`lead:${emailKey}`, "true", { expirationTtl: 2592000 }));
-                 } else {
-                     await env.LEAD_KV.put(`lead:${emailKey}`, "true", { expirationTtl: 2592000 });
+                 try {
+                     if (ctx && ctx.waitUntil) {
+                         ctx.waitUntil((async () => {
+                             try {
+                                 await env.LEAD_KV.put(`lead:${emailKey}`, "true", { expirationTtl: 2592000 });
+                             } catch (writeErr) {
+                                 await logTelemetry(env, 'KV_WRITE_FAULT', 'HIGH', `Failed to write deduplication lock for ${emailKey}: ${writeErr.message}`);
+                             }
+                         })());
+                     } else {
+                         try {
+                             await env.LEAD_KV.put(`lead:${emailKey}`, "true", { expirationTtl: 2592000 });
+                         } catch (writeErr) {
+                             await logTelemetry(env, 'KV_WRITE_FAULT', 'HIGH', `Failed to write deduplication lock for ${emailKey}: ${writeErr.message}`);
+                         }
+                     }
+                 } catch (outerErr) {
+                     await logTelemetry(env, 'KV_WRITE_FAULT', 'HIGH', `Failed to initiate write for ${emailKey}: ${outerErr.message}`);
                  }
              }
          }
