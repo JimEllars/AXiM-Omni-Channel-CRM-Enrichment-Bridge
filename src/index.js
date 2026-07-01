@@ -12,6 +12,42 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+
+    if (url.pathname === '/v1/management/kv-check' && request.method === 'GET') {
+      try {
+        const authHeader = request.headers.get('Authorization');
+        if (authHeader !== `Bearer ${env.AXIM_INTERNAL_KEY}`) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        const query = url.searchParams.get('query');
+        if (!query) {
+          return new Response('Missing query parameter', { status: 400 });
+        }
+
+        if (!env.CRM_BRIDGE_DEDUPE) {
+           return new Response('CRM_BRIDGE_DEDUPE not bound', { status: 500 });
+        }
+
+        const normalizedQuery = query.toLowerCase().trim();
+        const hashedKey = await hashDedupeKey(normalizedQuery);
+
+        const isDuplicate = await env.CRM_BRIDGE_DEDUPE.get(`lead:${hashedKey}`);
+
+        return new Response(JSON.stringify({
+          query: normalizedQuery,
+          hashedKey,
+          locked: !!isDuplicate
+        }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        ctx.waitUntil(logTelemetry(env, 'KV_CHECK_FAULT', 'HIGH', error.message));
+        return new Response('Internal Check Error', { status: 500 });
+      }
+    }
+
     if (url.pathname === '/v1/management/sync' && request.method === 'POST') {
       try {
         const authHeader = request.headers.get('Authorization');
@@ -23,12 +59,12 @@ export default {
         const data = await workerSheetsRequest(env, '/values/Config!A:B');
 
         let count = 0;
-        if (data.values && env.LEAD_KV) {
+        if (data.values && env.CRM_BRIDGE_ROUTING_RULES) {
           for (const row of data.values) {
              const key = row[0];
              const val = row[1];
              if (key && val) {
-               await env.LEAD_KV.put(`config:${key}`, val);
+               await env.CRM_BRIDGE_ROUTING_RULES.put(`config:${key}`, val);
                count++;
              }
           }
@@ -98,12 +134,12 @@ export default {
     try {
       await logTelemetry(env, 'CRON RUN', 'INFO', 'Nightly sync executed');
 
-      if (env.LEAD_KV) {
+      if (env.CRM_BRIDGE_DEDUPE) {
         let cursor = undefined;
         let totalSwept = 0;
 
         do {
-          const listResult = await env.LEAD_KV.list({
+          const listResult = await env.CRM_BRIDGE_DEDUPE.list({
             prefix: "pending_enrichment:",
             cursor: cursor
           });
@@ -122,6 +158,16 @@ export default {
     }
   }
 };
+
+
+async function hashDedupeKey(key) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(key);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex;
+}
 
 // --- PIPELINE HANDLERS ---
 
@@ -164,14 +210,14 @@ async function processAndDispatch(env, source, records, ctx) {
      // A. Deduplication Check (Using Cloudflare KV)
      const uniqueRecords = [];
      for (const record of records) {
-         if (env.LEAD_KV && record.email) {
+         if (env.CRM_BRIDGE_DEDUPE && record.email) {
            const emailKey = record.email.toLowerCase().trim();
+           const hashedKey = await hashDedupeKey(emailKey);
            let isDuplicate = false;
            try {
-               isDuplicate = await env.LEAD_KV.get(`lead:${emailKey}`);
+               isDuplicate = await env.CRM_BRIDGE_DEDUPE.get(`lead:${hashedKey}`);
            } catch (kvError) {
                await logTelemetry(env, 'KV_READ_FAULT', 'HIGH', `Failed to check deduplication for ${emailKey}: ${kvError.message}. Failing open.`);
-               // Failing open, so keep isDuplicate as false
            }
            if (isDuplicate) {
                await logTelemetry(env, 'DUPLICATE_CAUGHT', 'INFO', `Duplicate record caught for email: ${emailKey}`);
@@ -190,8 +236,8 @@ async function processAndDispatch(env, source, records, ctx) {
      // Fetch URLs
      let albatoWebhookUrl = env.ALBATO_WEBHOOK_URL || 'https://h.albato.com/wh/placeholder';
      let coreRestUrl = env.AXIM_CORE_REST_URL || 'https://api.axim.us.com/v1/bulk/ingest';
-     if (env.LEAD_KV) {
-       const kvUrl = await env.LEAD_KV.get('config:egress_url');
+     if (env.CRM_BRIDGE_ROUTING_RULES) {
+       const kvUrl = await env.CRM_BRIDGE_ROUTING_RULES.get('config:egress_url');
        if (kvUrl) {
          try {
            albatoWebhookUrl = JSON.parse(kvUrl);
@@ -199,7 +245,7 @@ async function processAndDispatch(env, source, records, ctx) {
            albatoWebhookUrl = kvUrl;
          }
        }
-       const coreUrl = await env.LEAD_KV.get('config:core_rest_url');
+       const coreUrl = await env.CRM_BRIDGE_ROUTING_RULES.get('config:core_rest_url');
        if (coreUrl) {
          try {
            coreRestUrl = JSON.parse(coreUrl);
@@ -299,23 +345,24 @@ async function processAndDispatch(env, source, records, ctx) {
      }
 
      // Only save to KV after 200 OK from either destination
-     if (env.LEAD_KV && (albatoSuccess || coreSuccess)) {
+     if (env.CRM_BRIDGE_DEDUPE && (albatoSuccess || coreSuccess)) {
          for (const record of uniqueRecords) {
              if (record.email) {
                  const emailKey = record.email.toLowerCase().trim();
+                 const hashedKey = await hashDedupeKey(emailKey);
                  // waitUntil allows fire and forget for KV put
                  try {
                      if (ctx && ctx.waitUntil) {
                          ctx.waitUntil((async () => {
                              try {
-                                 await env.LEAD_KV.put(`lead:${emailKey}`, "true", { expirationTtl: 2592000 });
+                                 await env.CRM_BRIDGE_DEDUPE.put(`lead:${hashedKey}`, "true", { expirationTtl: 86400 });
                              } catch (writeErr) {
                                  await logTelemetry(env, 'KV_WRITE_FAULT', 'HIGH', `Failed to write deduplication lock for ${emailKey}: ${writeErr.message}`);
                              }
                          })());
                      } else {
                          try {
-                             await env.LEAD_KV.put(`lead:${emailKey}`, "true", { expirationTtl: 2592000 });
+                             await env.CRM_BRIDGE_DEDUPE.put(`lead:${hashedKey}`, "true", { expirationTtl: 86400 });
                          } catch (writeErr) {
                              await logTelemetry(env, 'KV_WRITE_FAULT', 'HIGH', `Failed to write deduplication lock for ${emailKey}: ${writeErr.message}`);
                          }

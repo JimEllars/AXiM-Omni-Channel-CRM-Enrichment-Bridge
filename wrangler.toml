@@ -3,9 +3,13 @@ main = "src/index.js"
 compatibility_date = "2024-03-01"
 
 # KV Namespace Binding for Deduplication
-kv_namespaces = [
-  { binding = "LEAD_KV", id = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", preview_id = "YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY" }
-]
+[[kv_namespaces]]
+binding = "CRM_BRIDGE_DEDUPE"
+id = "98cd01deed8e403bb41d1420fef26b07"
+
+[[kv_namespaces]]
+binding = "CRM_BRIDGE_ROUTING_RULES"
+id = "b6472426553b40a296772870d5a5a529"
 
 # Note: Secrets like AXIM_INTERNAL_KEY and ALBATO_WEBHOOK_URL 
 # should be added via `wrangler secret put <KEY_NAME>`
