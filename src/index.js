@@ -20,22 +20,22 @@ export default {
           return new Response('Unauthorized', { status: 401 });
         }
 
-        const query = url.searchParams.get('query');
-        if (!query) {
-          return new Response('Missing query parameter', { status: 400 });
+        const email = url.searchParams.get('email') || url.searchParams.get('query');
+        if (!email) {
+          return new Response('Missing email query parameter', { status: 400 });
         }
 
         if (!env.CRM_BRIDGE_DEDUPE) {
            return new Response('CRM_BRIDGE_DEDUPE not bound', { status: 500 });
         }
 
-        const normalizedQuery = query.toLowerCase().trim();
-        const hashedKey = await hashDedupeKey(normalizedQuery);
+        const normalizedEmail = email.toLowerCase().trim();
+        const hashedKey = await hashDedupeKey(normalizedEmail);
 
         const isDuplicate = await env.CRM_BRIDGE_DEDUPE.get(`lead:${hashedKey}`);
 
         return new Response(JSON.stringify({
-          query: normalizedQuery,
+          query: normalizedEmail,
           hashedKey,
           locked: !!isDuplicate
         }), {
@@ -212,12 +212,20 @@ async function processAndDispatch(env, source, records, ctx) {
      for (const record of records) {
          if (env.CRM_BRIDGE_DEDUPE && record.email) {
            const emailKey = record.email.toLowerCase().trim();
-           const hashedKey = await hashDedupeKey(emailKey);
+           let hashedKey;
            let isDuplicate = false;
            try {
-               isDuplicate = await env.CRM_BRIDGE_DEDUPE.get(`lead:${hashedKey}`);
-           } catch (kvError) {
-               await logTelemetry(env, 'KV_READ_FAULT', 'HIGH', `Failed to check deduplication for ${emailKey}: ${kvError.message}. Failing open.`);
+               hashedKey = await hashDedupeKey(emailKey);
+           } catch (hashError) {
+               await logTelemetry(env, 'HASH_FAULT', 'HIGH', `Failed to hash dedupe key for ${emailKey}: ${hashError.message}. Failing open.`);
+           }
+
+           if (hashedKey) {
+               try {
+                   isDuplicate = await env.CRM_BRIDGE_DEDUPE.get(`lead:${hashedKey}`);
+               } catch (kvError) {
+                   await logTelemetry(env, 'KV_READ_FAULT', 'HIGH', `Failed to check deduplication for ${emailKey}: ${kvError.message}. Failing open.`);
+               }
            }
            if (isDuplicate) {
                await logTelemetry(env, 'DUPLICATE_CAUGHT', 'INFO', `Duplicate record caught for email: ${emailKey}`);
@@ -349,9 +357,16 @@ async function processAndDispatch(env, source, records, ctx) {
          for (const record of uniqueRecords) {
              if (record.email) {
                  const emailKey = record.email.toLowerCase().trim();
-                 const hashedKey = await hashDedupeKey(emailKey);
-                 // waitUntil allows fire and forget for KV put
+                 let hashedKey;
                  try {
+                     hashedKey = await hashDedupeKey(emailKey);
+                 } catch (hashError) {
+                     await logTelemetry(env, 'HASH_FAULT', 'HIGH', `Failed to hash dedupe key for ${emailKey} during write: ${hashError.message}.`);
+                 }
+
+                 if (hashedKey) {
+                     // waitUntil allows fire and forget for KV put
+                     try {
                      if (ctx && ctx.waitUntil) {
                          ctx.waitUntil((async () => {
                              try {
@@ -362,13 +377,14 @@ async function processAndDispatch(env, source, records, ctx) {
                          })());
                      } else {
                          try {
-                             await env.CRM_BRIDGE_DEDUPE.put(`lead:${hashedKey}`, "true", { expirationTtl: 86400 });
-                         } catch (writeErr) {
-                             await logTelemetry(env, 'KV_WRITE_FAULT', 'HIGH', `Failed to write deduplication lock for ${emailKey}: ${writeErr.message}`);
+                                 await env.CRM_BRIDGE_DEDUPE.put(`lead:${hashedKey}`, "true", { expirationTtl: 86400 });
+                             } catch (writeErr) {
+                                 await logTelemetry(env, 'KV_WRITE_FAULT', 'HIGH', `Failed to write deduplication lock for ${emailKey}: ${writeErr.message}`);
+                             }
                          }
+                     } catch (outerErr) {
+                         await logTelemetry(env, 'KV_WRITE_FAULT', 'HIGH', `Failed to initiate write for ${emailKey}: ${outerErr.message}`);
                      }
-                 } catch (outerErr) {
-                     await logTelemetry(env, 'KV_WRITE_FAULT', 'HIGH', `Failed to initiate write for ${emailKey}: ${outerErr.message}`);
                  }
              }
          }
