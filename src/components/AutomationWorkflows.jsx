@@ -6,6 +6,8 @@ import { configService } from '../services/configService';
 export default function AutomationWorkflows() {
   const [savingId, setSavingId] = useState(null);
   const [syncedId, setSyncedId] = useState(null);
+  const [configVersion, setConfigVersion] = useState("1.0.0");
+  const [configLastUpdated, setConfigLastUpdated] = useState("");
   const [workflows, setWorkflows] = useState([
     {
       id: 'wf_1',
@@ -35,6 +37,10 @@ export default function AutomationWorkflows() {
           setWorkflows(savedWorkflows);
         } else if (savedWorkflows && Array.isArray(savedWorkflows.rules)) {
           setWorkflows(savedWorkflows.rules);
+          setConfigVersion(savedWorkflows.version || "1.0.0");
+          if (savedWorkflows.last_updated) {
+            setConfigLastUpdated(new Date(savedWorkflows.last_updated).toLocaleString());
+          }
         }
       } catch (err) {
         console.error('Failed to fetch workflows from configService:', err);
@@ -116,6 +122,16 @@ export default function AutomationWorkflows() {
             Automation Engine
           </h2>
           <p className="text-slate-500 text-[10px] uppercase font-black tracking-widest mt-1">If/Then Trigger Configuration</p>
+          {configLastUpdated && (
+            <span className="text-xs text-gray-500 mt-2 block">
+              Live Config v{configVersion} (Updated {configLastUpdated})
+            </span>
+          )}
+          {!configLastUpdated && (
+            <span className="text-xs text-gray-500 mt-2 block">
+              Live Config v{configVersion}
+            </span>
+          )}
         </div>
         <button
           onClick={addWorkflow}
