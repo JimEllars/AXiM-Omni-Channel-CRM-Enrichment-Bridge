@@ -93,6 +93,10 @@ export default function DuplicateStats() {
     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 h-full flex flex-col">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-white font-medium text-sm uppercase tracking-wider">KV Intelligence</h3>
+        <div className="flex gap-2 ml-3">
+          <span className="text-[10px] px-2 py-0.5 bg-emerald-900/30 text-emerald-400 border border-emerald-800/50 rounded-full font-bold uppercase tracking-wider">Cryptographic Deduplication Active</span>
+          <span className="text-[10px] px-2 py-0.5 bg-blue-900/30 text-blue-400 border border-blue-800/50 rounded-full font-bold uppercase tracking-wider">24-Hour Rolling Window</span>
+        </div>
         {loading && <span className="text-xs text-slate-500 animate-pulse">Live...</span>}
       </div>
       <div className="flex-1 min-h-[250px]">

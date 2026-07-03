@@ -33,6 +33,8 @@ export default function AutomationWorkflows() {
         const savedWorkflows = await configService.get('automation_workflows', null);
         if (savedWorkflows && Array.isArray(savedWorkflows)) {
           setWorkflows(savedWorkflows);
+        } else if (savedWorkflows && Array.isArray(savedWorkflows.rules)) {
+          setWorkflows(savedWorkflows.rules);
         }
       } catch (err) {
         console.error('Failed to fetch workflows from configService:', err);
@@ -48,7 +50,12 @@ export default function AutomationWorkflows() {
 
     try {
       // 1. Save to Google Sheets Config via configService
-      await configService.set('automation_workflows', newWorkflows);
+      const payload = {
+        version: "1.0.0",
+        last_updated: new Date().toISOString(),
+        rules: newWorkflows
+      };
+      await configService.set('automation_workflows', payload);
 
       // 2. Fire authenticated POST request to Worker's sync endpoint
       await fetch('/v1/management/sync', {
