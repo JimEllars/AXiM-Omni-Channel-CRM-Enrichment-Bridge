@@ -139,13 +139,45 @@ export default {
         let totalSwept = 0;
 
         do {
-          const listResult = await env.CRM_BRIDGE_DEDUPE.list({
-            prefix: "pending_enrichment:",
-            cursor: cursor
-          });
+          let listResult;
+          try {
+            listResult = await env.CRM_BRIDGE_DEDUPE.list({
+              prefix: "pending_enrichment:",
+              cursor: cursor
+            });
+          } catch (listError) {
+            await logTelemetry(env, 'CRON_KV_FAULT', 'HIGH', `list() failed: ${listError.message}`);
+            return; // Exit gracefully
+          }
 
           if (listResult && listResult.keys) {
-            totalSwept += listResult.keys.length;
+            for (const key of listResult.keys) {
+              let recordStr;
+              try {
+                recordStr = await env.CRM_BRIDGE_DEDUPE.get(key.name);
+              } catch (getError) {
+                await logTelemetry(env, 'CRON_KV_FAULT', 'HIGH', `get() failed for ${key.name}: ${getError.message}`);
+                continue;
+              }
+
+              if (recordStr) {
+                try {
+                  const record = JSON.parse(recordStr);
+                  // Using ctx here as it is passed to processInBatches
+                  await processInBatches(env, 'scheduled_sweep', [record], ctx);
+                } catch (processError) {
+                  await logTelemetry(env, 'CRON_PROCESS_FAULT', 'HIGH', `Failed to process ${key.name}: ${processError.message}`);
+                }
+              }
+
+              try {
+                await env.CRM_BRIDGE_DEDUPE.delete(key.name);
+                totalSwept++;
+              } catch (deleteError) {
+                await logTelemetry(env, 'CRON_KV_FAULT', 'HIGH', `delete() failed for ${key.name}: ${deleteError.message}`);
+                continue;
+              }
+            }
           }
 
           cursor = listResult.list_complete ? undefined : listResult.cursor;
