@@ -1,7 +1,7 @@
 import { formatForDeskera, formatForCore } from './utils/mapper.js';
 import { sanitizeLeadData } from './utils/sanitize.js';
 import { logTelemetry } from './utils/telemetry.js';
-import { logToRecovery } from './utils/workerSheets.js';
+import { logToRecovery, workerDeleteRow } from './utils/workerSheets.js';
 import { enrichRecord } from './utils/enrichmentLogic.js';
 
 /**
@@ -27,6 +27,37 @@ export default {
     }
 
 
+
+
+    // DELETE route for DLQ dismissal
+    if (url.pathname === '/v1/management/dlq-dismiss' && request.method === 'DELETE') {
+      try {
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        const authHeader = request.headers.get('Authorization');
+
+        let isAuthorized = false;
+        if (authHeader === `Bearer ${env.AXIM_INTERNAL_KEY}` || internalAuth === env.AXIM_INTERNAL_KEY) {
+           isAuthorized = true;
+        }
+        if (!isAuthorized) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        const recordId = url.searchParams.get('recordId');
+        if (!recordId) {
+          return new Response('Missing recordId', { status: 400 });
+        }
+
+        await workerDeleteRow(env, 'Recovery', recordId);
+        return new Response(JSON.stringify({ success: true, message: 'Record dismissed' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error("DLQ Dismiss Error:", error);
+        return new Response('Failed to dismiss DLQ alert', { status: 500 });
+      }
+    }
 
     if (url.pathname === '/v1/management/kv-check' && request.method === 'GET') {
       try {
@@ -207,6 +238,15 @@ export default {
     // INGRESS: Webhook Catcher Endpoint
     if (url.pathname === '/v1/webhooks/enrich' && request.method === 'POST') {
       try {
+
+        // IP Whitelisting Check
+        const clientIp = request.headers.get('CF-Connecting-IP');
+        if (env.ALLOWED_INGRESS_IPS && env.ALLOWED_INGRESS_IPS.trim() !== '') {
+          const allowedIps = env.ALLOWED_INGRESS_IPS.split(',').map(ip => ip.trim());
+          if (clientIp && !allowedIps.includes(clientIp)) {
+             return new Response('Forbidden: IP not allowed', { status: 403 });
+          }
+        }
         // Authenticate incoming traffic using internal AXiM service key or fallback client secret
         const authHeader = request.headers.get('Authorization');
         const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
@@ -279,7 +319,7 @@ export default {
   // SCHEDULED: Cron Trigger Handler for Database Sweeps
   async scheduled(event, env, ctx) {
     try {
-      await logTelemetry(env, {
+      ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -291,7 +331,7 @@ export default {
         component_origin: "index.js",
         error_message: 'Nightly sync executed'
       }
-    });
+    }));
 
       if (env.CRM_BRIDGE_DEDUPE) {
         let cursor = undefined;
@@ -305,7 +345,7 @@ export default {
               cursor: cursor
             });
           } catch (listError) {
-            await logTelemetry(env, {
+            ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -317,7 +357,7 @@ export default {
         component_origin: "index.js",
         error_message: `list() failed: ${listError.message}`
       }
-    });
+    }));
             return; // Exit gracefully
           }
 
@@ -327,7 +367,7 @@ export default {
               try {
                 recordStr = await env.CRM_BRIDGE_DEDUPE.get(key.name);
               } catch (getError) {
-                await logTelemetry(env, {
+                ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -339,7 +379,7 @@ export default {
         component_origin: "index.js",
         error_message: `get() failed for ${key.name}: ${getError.message}`
       }
-    });
+    }));
                 continue;
               }
 
@@ -349,7 +389,7 @@ export default {
                   // Using ctx here as it is passed to processInBatches
                   await processInBatches(env, 'scheduled_sweep', [record], ctx);
                 } catch (processError) {
-                  await logTelemetry(env, {
+                  ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -361,7 +401,7 @@ export default {
         component_origin: "index.js",
         error_message: `Failed to process ${key.name}: ${processError.message}`
       }
-    });
+    }));
                 }
               }
 
@@ -369,7 +409,7 @@ export default {
                 await env.CRM_BRIDGE_DEDUPE.delete(key.name);
                 totalSwept++;
               } catch (deleteError) {
-                await logTelemetry(env, {
+                ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -381,7 +421,7 @@ export default {
         component_origin: "index.js",
         error_message: `delete() failed for ${key.name}: ${deleteError.message}`
       }
-    });
+    }));
                 continue;
               }
             }
@@ -390,7 +430,7 @@ export default {
           cursor = listResult.list_complete ? undefined : listResult.cursor;
         } while (cursor);
 
-        await logTelemetry(env, {
+        ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -402,10 +442,10 @@ export default {
         component_origin: "index.js",
         error_message: `[CRON RUN] Swept: ${totalSwept} pending records from KV`
       }
-    });
+    }));
       }
     } catch (error) {
-      await logTelemetry(env, {
+      ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -417,7 +457,7 @@ export default {
         component_origin: "index.js",
         error_message: error.message
       }
-    });
+    }));
     }
   }
 };
@@ -448,7 +488,7 @@ async function processInBatches(env, source, rawRecords, ctx) {
       for (const record of chunk) {
         const sanitized = sanitizeLeadData(record);
         if (sanitized.isValid) {
-          const enriched = await enrichRecord(env, sanitized);
+          const enriched = await enrichRecord(env, ctx, sanitized);
           if (enriched._enrichment_failed) {
             enrichmentFailCount++;
           }
@@ -461,7 +501,7 @@ async function processInBatches(env, source, rawRecords, ctx) {
         successCount = cleanRecords.length;
       }
 
-      await logTelemetry(env, {
+      ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -473,9 +513,9 @@ async function processInBatches(env, source, rawRecords, ctx) {
         component_origin: "index.js",
         error_message: `[BATCH IMPORT] Processed: ${chunk.length} | Success: ${successCount} | Enrichment Fails: ${enrichmentFailCount}`
       }
-    });
+    }));
     } catch (error) {
-      await logTelemetry(env, {
+      ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -487,7 +527,7 @@ async function processInBatches(env, source, rawRecords, ctx) {
         component_origin: "index.js",
         error_message: `Error in batch ${i / BATCH_SIZE}: ${error.message}`
       }
-    });
+    }));
     }
   }
 }
@@ -504,7 +544,7 @@ async function processAndDispatch(env, source, records, ctx) {
            try {
                hashedKey = await hashDedupeKey(emailKey);
            } catch (hashError) {
-               await logTelemetry(env, {
+               ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -516,14 +556,14 @@ async function processAndDispatch(env, source, records, ctx) {
         component_origin: "index.js",
         error_message: `Failed to hash dedupe key for ${emailKey}: ${hashError.message}. Failing open.`
       }
-    });
+    }));
            }
 
            if (hashedKey) {
                try {
                    isDuplicate = await env.CRM_BRIDGE_DEDUPE.get(`lead:${hashedKey}`);
                } catch (kvError) {
-                   await logTelemetry(env, {
+                   ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -535,11 +575,11 @@ async function processAndDispatch(env, source, records, ctx) {
         component_origin: "index.js",
         error_message: `Failed to check deduplication for ${emailKey}: ${kvError.message}. Failing open.`
       }
-    });
+    }));
                }
            }
            if (isDuplicate) {
-               await logTelemetry(env, {
+               ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -551,7 +591,7 @@ async function processAndDispatch(env, source, records, ctx) {
         component_origin: "index.js",
         error_message: `Duplicate record caught for email: ${emailKey}`
       }
-    });
+    }));
            } else {
                uniqueRecords.push(record);
            }
@@ -601,12 +641,12 @@ async function processAndDispatch(env, source, records, ctx) {
      }
 
      if (invalidRecords.length > 0) {
-         await logToRecovery(env, source, "Pre-Flight Validation Failed", {
+         ctx.waitUntil(logToRecovery(env, source, "Pre-Flight Validation Failed", {
              destination: 'DLQ',
              original: uniqueRecords.filter((_, i) => mappedRecords[i]._is_invalid),
              mapped: invalidRecords
-         });
-         await logTelemetry(env, {
+         }));
+         ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -618,7 +658,7 @@ async function processAndDispatch(env, source, records, ctx) {
         component_origin: "index.js",
         error_message: `${invalidRecords.length} records failed pre-flight validation.`
       }
-    });
+    }));
      }
 
      if (validRecords.length === 0) return;
@@ -640,12 +680,12 @@ async function processAndDispatch(env, source, records, ctx) {
        });
 
        if (!albatoRes.ok) {
-           await logToRecovery(env, source, "Albato 500/Rejection", {
+           ctx.waitUntil(logToRecovery(env, source, "Albato 500/Rejection", {
              destination: 'Albato',
              original: uniqueRecords,
              mapped: dispatchPayload
-           });
-           await logTelemetry(env, {
+           }));
+           ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -657,10 +697,10 @@ async function processAndDispatch(env, source, records, ctx) {
         component_origin: "index.js",
         error_message: `Albato rejection: ${albatoRes.status}`
       }
-    });
+    }));
        } else {
            albatoSuccess = true;
-           await logTelemetry(env, {
+           ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -672,15 +712,15 @@ async function processAndDispatch(env, source, records, ctx) {
         component_origin: "index.js",
         error_message: `Successfully synced ${uniqueRecords.length} records to Albato`
       }
-    });
+    }));
        }
      } catch (e) {
-         await logToRecovery(env, source, "Albato Network Error", {
+         ctx.waitUntil(logToRecovery(env, source, "Albato Network Error", {
              destination: 'Albato',
              original: uniqueRecords,
              mapped: dispatchPayload
-         });
-         await logTelemetry(env, {
+         }));
+         ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -692,7 +732,7 @@ async function processAndDispatch(env, source, records, ctx) {
         component_origin: "index.js",
         error_message: `Albato dispatch failed: ${e.message}`
       }
-    });
+    }));
      }
 
      // 2. Dispatch to AXiM Core (Bulk Volume)
@@ -704,12 +744,12 @@ async function processAndDispatch(env, source, records, ctx) {
        });
 
        if (!coreRes.ok) {
-           await logToRecovery(env, source, "Core 500/Rejection", {
+           ctx.waitUntil(logToRecovery(env, source, "Core 500/Rejection", {
              destination: 'Core',
              original: uniqueRecords,
              mapped: dispatchPayload
-           });
-           await logTelemetry(env, {
+           }));
+           ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -721,10 +761,10 @@ async function processAndDispatch(env, source, records, ctx) {
         component_origin: "index.js",
         error_message: `Core rejection: ${coreRes.status}`
       }
-    });
+    }));
        } else {
            coreSuccess = true;
-           await logTelemetry(env, {
+           ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -736,15 +776,15 @@ async function processAndDispatch(env, source, records, ctx) {
         component_origin: "index.js",
         error_message: `Successfully synced ${uniqueRecords.length} records to AXiM Core`
       }
-    });
+    }));
        }
      } catch (e) {
-         await logToRecovery(env, source, "Core Network Error", {
+         ctx.waitUntil(logToRecovery(env, source, "Core Network Error", {
              destination: 'Core',
              original: uniqueRecords,
              mapped: dispatchPayload
-         });
-         await logTelemetry(env, {
+         }));
+         ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -756,7 +796,7 @@ async function processAndDispatch(env, source, records, ctx) {
         component_origin: "index.js",
         error_message: `Core dispatch failed: ${e.message}`
       }
-    });
+    }));
      }
 
      // Only save to KV after 200 OK from either destination
@@ -768,7 +808,7 @@ async function processAndDispatch(env, source, records, ctx) {
                  try {
                      hashedKey = await hashDedupeKey(emailKey);
                  } catch (hashError) {
-                     await logTelemetry(env, {
+                     ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -780,7 +820,7 @@ async function processAndDispatch(env, source, records, ctx) {
         component_origin: "index.js",
         error_message: `Failed to hash dedupe key for ${emailKey} during write: ${hashError.message}.`
       }
-    });
+    }));
                  }
 
                  if (hashedKey) {
@@ -791,7 +831,7 @@ async function processAndDispatch(env, source, records, ctx) {
                              try {
                                  await env.CRM_BRIDGE_DEDUPE.put(`lead:${hashedKey}`, "true", { expirationTtl: 86400 });
                              } catch (writeErr) {
-                                 await logTelemetry(env, {
+                                 ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -803,14 +843,14 @@ async function processAndDispatch(env, source, records, ctx) {
         component_origin: "index.js",
         error_message: `Failed to write deduplication lock for ${emailKey}: ${writeErr.message}`
       }
-    });
+    }));
                              }
                          })());
                      } else {
                          try {
                                  await env.CRM_BRIDGE_DEDUPE.put(`lead:${hashedKey}`, "true", { expirationTtl: 86400 });
                              } catch (writeErr) {
-                                 await logTelemetry(env, {
+                                 ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -822,11 +862,11 @@ async function processAndDispatch(env, source, records, ctx) {
         component_origin: "index.js",
         error_message: `Failed to write deduplication lock for ${emailKey}: ${writeErr.message}`
       }
-    });
+    }));
                              }
                          }
                      } catch (outerErr) {
-                         await logTelemetry(env, {
+                         ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -838,7 +878,7 @@ async function processAndDispatch(env, source, records, ctx) {
         component_origin: "index.js",
         error_message: `Failed to initiate write for ${emailKey}: ${outerErr.message}`
       }
-    });
+    }));
                      }
                  }
              }
@@ -846,7 +886,7 @@ async function processAndDispatch(env, source, records, ctx) {
      }
 
   } catch (error) {
-     await logTelemetry(env, {
+     ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -858,15 +898,15 @@ async function processAndDispatch(env, source, records, ctx) {
         component_origin: "index.js",
         error_message: error.message
       }
-    });
+    }));
   }
 }
 
 
 // --- SCHEDULED HANDLERS ---
-async function performDatabaseSweep(env) {
+async function performDatabaseSweep(env, ctx) {
   try {
-    await logTelemetry(env, {
+    ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -878,7 +918,7 @@ async function performDatabaseSweep(env) {
         component_origin: "index.js",
         error_message: 'Starting nightly database sweep for enrichment.'
       }
-    });
+    }));
 
     // Placeholder for actual database sweep logic
     // In a real implementation, this would query KV (or another DB) for leads:
@@ -899,7 +939,7 @@ async function performDatabaseSweep(env) {
       await processInBatches(env, 'scheduled_sweep', sweepBatches, null);
     }
 
-    await logTelemetry(env, {
+    ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -911,9 +951,9 @@ async function performDatabaseSweep(env) {
         component_origin: "index.js",
         error_message: `Completed database sweep. Processed ${mockSweepData.length} records.`
       }
-    });
+    }));
   } catch (error) {
-    await logTelemetry(env, {
+    ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -925,6 +965,6 @@ async function performDatabaseSweep(env) {
         component_origin: "index.js",
         error_message: `Error during database sweep: ${error.message}`
       }
-    });
+    }));
   }
 }

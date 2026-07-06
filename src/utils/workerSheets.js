@@ -91,3 +91,34 @@ export async function logToRecovery(env, source, reason, payload) {
     console.error("Failed to write to recovery sheet:", error);
   }
 }
+
+export async function getWorkerSheetMeta(env, force = false) {
+  const data = await workerSheetsRequest(env, '/?fields=sheets.properties');
+  if (data._error) throw new Error(data._error);
+  return Object.fromEntries((data.sheets || []).map(s => [s.properties.title, s.properties.sheetId]));
+}
+
+export async function workerFindRowIndexById(env, title, id) {
+  const data = await workerSheetsRequest(env, `/values/${encodeURIComponent(title)}!A:A`);
+  if (data._error) throw new Error(data._error);
+  const col = data.values || [];
+  for (let i = 1; i < col.length; i++) {
+    if (col[i] && col[i][0] === id) return i + 1;
+  }
+  return -1;
+}
+
+export async function workerDeleteRow(env, title, id) {
+  const m = await getWorkerSheetMeta(env);
+  const sheetId = m[title];
+  if (sheetId === undefined) throw new Error(`tab not found: ${title}`);
+
+  const sheetRow = await workerFindRowIndexById(env, title, id);
+  if (sheetRow < 0) throw new Error(`id not found in ${title}: ${id}`);
+
+  const startIndex = sheetRow - 1;
+  return workerSheetsRequest(env, '/:batchUpdate', {
+    method: 'POST',
+    body: JSON.stringify({ requests: [{ deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex, endIndex: startIndex + 1 } } }] }),
+  });
+}

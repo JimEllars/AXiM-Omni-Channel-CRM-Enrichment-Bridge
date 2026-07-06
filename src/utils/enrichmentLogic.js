@@ -17,7 +17,7 @@ const getApiKey = () => {
 
 
 // Real third-party API call with robust fetch, retries, exponential backoff, and 3-second timeout
-async function thirdPartyEnrichment(env, provider, data) {
+async function thirdPartyEnrichment(env, ctx, provider, data) {
   const apiKey = getApiKey();
 
   if (!apiKey) {
@@ -62,7 +62,7 @@ async function thirdPartyEnrichment(env, provider, data) {
           return await response.json();
         } catch (jsonErr) {
           if (env) {
-            await logTelemetry(env, {
+            ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -74,7 +74,7 @@ async function thirdPartyEnrichment(env, provider, data) {
         component_origin: "enrichmentLogic.js",
         error_message: `JSON_PARSE_ERROR: Failed to parse response from ${provider}`
       }
-    });
+    }));
           }
           data._enrichment_failed = true;
           data._enrichment_error = `JSON_PARSE_ERROR: Failed to parse response from ${provider}`;
@@ -99,7 +99,7 @@ async function thirdPartyEnrichment(env, provider, data) {
   }
 }
 
-export async function enrichRecord(env, record) {
+export async function enrichRecord(env, ctx, record) {
   let result = {
     ...record,
     enrichmentQueued: false,
@@ -119,7 +119,7 @@ export async function enrichRecord(env, record) {
       triggerCondition: 'MISSING_EMAIL'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(thirdPartyEnrichment(env, action.provider, record));
+    pendingCalls.push(thirdPartyEnrichment(env, ctx, action.provider, record));
   }
 
   // Missing Phone -> Apollo Scraping Protocol
@@ -133,7 +133,7 @@ export async function enrichRecord(env, record) {
       triggerCondition: 'MISSING_PHONE'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(thirdPartyEnrichment(env, action.provider, record));
+    pendingCalls.push(thirdPartyEnrichment(env, ctx, action.provider, record));
   }
 
   // Check for missing company
@@ -146,7 +146,7 @@ export async function enrichRecord(env, record) {
       status: 'pending'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(thirdPartyEnrichment(env, action.provider, record));
+    pendingCalls.push(thirdPartyEnrichment(env, ctx, action.provider, record));
   }
 
   // Check for missing LinkedIn URL
@@ -159,7 +159,7 @@ export async function enrichRecord(env, record) {
       status: 'pending'
     };
     result.enrichmentActions.push(action);
-    pendingCalls.push(thirdPartyEnrichment(env, action.provider, record));
+    pendingCalls.push(thirdPartyEnrichment(env, ctx, action.provider, record));
   }
 
   // Check for missing company size (example of workflow trigger)
@@ -172,7 +172,7 @@ export async function enrichRecord(env, record) {
           status: 'pending'
       };
       result.enrichmentActions.push(action);
-      pendingCalls.push(thirdPartyEnrichment(env, action.provider, record));
+      pendingCalls.push(thirdPartyEnrichment(env, ctx, action.provider, record));
   }
 
   if (pendingCalls.length > 0) {
@@ -183,7 +183,7 @@ export async function enrichRecord(env, record) {
         result._enrichment_failed = true;
         result._enrichment_error = res.reason.message;
         if (env) {
-          await logTelemetry(env, {
+          ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
         project_id: "AXIM_CRM_BRIDGE",
         environment: env.ENVIRONMENT || "production",
@@ -195,7 +195,7 @@ export async function enrichRecord(env, record) {
         component_origin: "enrichmentLogic.js",
         error_message: `Enrichment failed: ${res.reason.message}`
       }
-    });
+    }));
         }
         break; // Only need to flag once if any fail
       }
