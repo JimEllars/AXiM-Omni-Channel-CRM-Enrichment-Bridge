@@ -43,6 +43,28 @@ export default function RecoveryCenter({ onRetrySuccess }) {
     );
   };
 
+
+  const handleDismiss = async (id) => {
+    if (!window.confirm("Are you sure you want to dismiss this system alert?")) return;
+    try {
+      setItems(items.filter(i => i.id !== id)); // optimistic UI update
+      const key = import.meta.env.VITE_AXIM_INTERNAL_KEY;
+      const response = await fetch(`/v1/management/dlq-dismiss?recordId=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${key}`
+        }
+      });
+      if (!response.ok) {
+         throw new Error("Failed to dismiss alert");
+      }
+    } catch (e) {
+      console.error(e);
+      // reload to revert optimistic UI update on error
+      loadItems();
+    }
+  };
+
   const handleBulkRetry = async () => {
     if (selectedIds.length === 0) return;
 
@@ -254,13 +276,23 @@ export default function RecoveryCenter({ onRetrySuccess }) {
                             >
                               <SafeIcon icon={FiEdit3} />
                             </button>
-                            <button
-                              onClick={() => handleRetry(item)}
-                              disabled={retryingId === item.id || isSystemAlert}
-                              className={`p-2 bg-slate-800 rounded-lg transition-colors flex items-center gap-1 ${retryingId === item.id || isSystemAlert ? 'text-slate-600 opacity-50 cursor-not-allowed' : 'hover:bg-emerald-600/20 text-slate-400 hover:text-emerald-400'}`}
-                            >
-                              {retryingId === item.id ? <span className="text-[10px] animate-pulse">Retrying...</span> : <SafeIcon icon={FiRefreshCw} />}
-                            </button>
+                            {isSystemAlert ? (
+                              <button
+                                onClick={() => handleDismiss(item.id)}
+                                className="p-2 bg-slate-800 hover:bg-orange-600/20 text-orange-400 rounded-lg transition-colors flex items-center gap-1"
+                                title="Dismiss Alert"
+                              >
+                                <span className="text-[10px] font-bold">DISMISS</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleRetry(item)}
+                                disabled={retryingId === item.id}
+                                className={`p-2 bg-slate-800 rounded-lg transition-colors flex items-center gap-1 ${retryingId === item.id ? 'text-slate-600 opacity-50 cursor-not-allowed' : 'hover:bg-emerald-600/20 text-slate-400 hover:text-emerald-400'}`}
+                              >
+                                {retryingId === item.id ? <span className="text-[10px] animate-pulse">Retrying...</span> : <SafeIcon icon={FiRefreshCw} />}
+                              </button>
+                            )}
                             <button
                               onClick={() => handleDelete(item.id)}
                               className="p-2 bg-slate-800 hover:bg-red-600/20 text-slate-400 hover:text-red-400 rounded-lg transition-colors"
