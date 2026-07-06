@@ -93,6 +93,26 @@ export default function SystemHealth() {
     await configService.set('system_health_regions', updated);
   };
 
+  const forceUnlock = async () => {
+    try {
+      const response = await fetch('/v1/management/unlock', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-AXiM-Internal-Auth': import.meta.env.VITE_AXIM_INTERNAL_KEY || ''
+        }
+      });
+      if (response.ok) {
+        // toast or update state
+        console.log('Force unlock successful');
+      } else {
+        console.error('Force unlock failed');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // Ensure robust mapping even if healthStats is not updated
   const statusColor = healthStats.status === 'Operational' ? 'text-emerald-400' :
                       healthStats.status === 'Degraded' ? 'text-amber-400' : 'text-red-400';
@@ -144,6 +164,12 @@ export default function SystemHealth() {
               className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all border border-slate-700"
             >
               <SafeIcon icon={FiRefreshCw} /> RE-BALANCE TRAFFIC
+            </button>
+            <button
+              onClick={forceUnlock}
+              className="px-4 py-2 bg-red-900/50 hover:bg-red-800 text-red-300 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all border border-red-800"
+            >
+              FORCE UNLOCK
             </button>
           </div>
         </div>

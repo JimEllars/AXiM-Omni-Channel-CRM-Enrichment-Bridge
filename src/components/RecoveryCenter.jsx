@@ -78,7 +78,7 @@ export default function RecoveryCenter({ onRetrySuccess }) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_AXIM_INTERNAL_KEY}`
+            'X-AXiM-Internal-Auth': import.meta.env.VITE_AXIM_INTERNAL_KEY
           },
           body: JSON.stringify({ source: 'dlq_retry', records: [result] })
         });
