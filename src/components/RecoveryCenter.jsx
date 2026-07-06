@@ -216,32 +216,60 @@ export default function RecoveryCenter({ onRetrySuccess }) {
                       })()}
                     </td>
                     <td className="px-6 py-4">
-                      <code className="text-[10px] text-slate-500 truncate max-w-[200px] block">
-                        {item.payload}
-                      </code>
+{(() => {
+                        if (item.payload.includes('[SYSTEM_DEGRADED]')) {
+                             return <span className="px-2 py-0.5 rounded text-[10px] font-bold border bg-red-900/50 text-red-300 border-red-700">System Alert</span>;
+                        }
+                        try {
+                          const parsed = JSON.parse(item.payload);
+                          if (parsed.telemetry_envelope) {
+                             return <span className="px-2 py-0.5 rounded text-[10px] font-bold border bg-red-900/50 text-red-300 border-red-700">System Alert</span>;
+                          }
+                        } catch(e) { /* ignore */ }
+                        return (
+                          <code className="text-[10px] text-slate-500 truncate max-w-[200px] block">
+                            {item.payload}
+                          </code>
+                        );
+                      })()}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                        <button 
-                          onClick={() => { setEditingItem(item); setEditPayload(item.payload); }}
-                          className="p-2 bg-slate-800 hover:bg-blue-600/20 text-slate-400 hover:text-blue-400 rounded-lg transition-colors"
-                        >
-                          <SafeIcon icon={FiEdit3} />
-                        </button>
-                        <button 
-                          onClick={() => handleRetry(item)}
-                          disabled={retryingId === item.id}
-                          className="p-2 bg-slate-800 hover:bg-emerald-600/20 text-slate-400 hover:text-emerald-400 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
-                        >
-                          {retryingId === item.id ? <span className="text-[10px] animate-pulse">Retrying...</span> : <SafeIcon icon={FiRefreshCw} />}
-                        </button>
-                        <button 
-                          onClick={() => handleDelete(item.id)}
-                          className="p-2 bg-slate-800 hover:bg-red-600/20 text-slate-400 hover:text-red-400 rounded-lg transition-colors"
-                        >
-                          <SafeIcon icon={FiTrash2} />
-                        </button>
-                      </div>
+                      {(() => {
+                        let isSystemAlert = item.payload.includes('[SYSTEM_DEGRADED]');
+                        if (!isSystemAlert) {
+                          try {
+                            const parsed = JSON.parse(item.payload);
+                            if (parsed.telemetry_envelope) {
+                               isSystemAlert = true;
+                            }
+                          } catch(e) { /* ignore */ }
+                        }
+
+                        return (
+                          <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                            <button
+                              onClick={() => { setEditingItem(item); setEditPayload(item.payload); }}
+                              disabled={isSystemAlert}
+                              className={`p-2 bg-slate-800 rounded-lg transition-colors ${isSystemAlert ? 'text-slate-600 opacity-50 cursor-not-allowed' : 'hover:bg-blue-600/20 text-slate-400 hover:text-blue-400'}`}
+                            >
+                              <SafeIcon icon={FiEdit3} />
+                            </button>
+                            <button
+                              onClick={() => handleRetry(item)}
+                              disabled={retryingId === item.id || isSystemAlert}
+                              className={`p-2 bg-slate-800 rounded-lg transition-colors flex items-center gap-1 ${retryingId === item.id || isSystemAlert ? 'text-slate-600 opacity-50 cursor-not-allowed' : 'hover:bg-emerald-600/20 text-slate-400 hover:text-emerald-400'}`}
+                            >
+                              {retryingId === item.id ? <span className="text-[10px] animate-pulse">Retrying...</span> : <SafeIcon icon={FiRefreshCw} />}
+                            </button>
+                            <button
+                              onClick={() => handleDelete(item.id)}
+                              className="p-2 bg-slate-800 hover:bg-red-600/20 text-slate-400 hover:text-red-400 rounded-lg transition-colors"
+                            >
+                              <SafeIcon icon={FiTrash2} />
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </td>
                   </motion.tr>
                 ))

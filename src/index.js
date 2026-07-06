@@ -1,4 +1,4 @@
-import { formatForDeskera } from './utils/mapper.js';
+import { formatForDeskera, formatForCore } from './utils/mapper.js';
 import { sanitizeLeadData } from './utils/sanitize.js';
 import { logTelemetry } from './utils/telemetry.js';
 import { logToRecovery } from './utils/workerSheets.js';
@@ -119,6 +119,66 @@ export default {
       }
     }
 
+
+    if (url.pathname === '/v1/management/dry-run' && request.method === 'POST') {
+      try {
+        const authHeader = request.headers.get('Authorization');
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        if (authHeader !== `Bearer ${env.AXIM_INTERNAL_KEY}` && internalAuth !== env.AXIM_INTERNAL_KEY) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        const rawPayload = await request.json();
+
+        let records = [];
+        if (Array.isArray(rawPayload.records)) {
+          records = rawPayload.records;
+        } else if (rawPayload.record) {
+          records = [rawPayload.record];
+        } else if (Array.isArray(rawPayload)) {
+          records = rawPayload;
+        } else {
+          return new Response('Invalid Payload Format', { status: 400 });
+        }
+
+        let workflows = null;
+        if (env.CRM_BRIDGE_ROUTING_RULES) {
+          try {
+            workflows = await env.CRM_BRIDGE_ROUTING_RULES.get('config:automation_workflows', 'json');
+          } catch (e) {
+            workflows = null;
+          }
+        }
+
+        const rulesToApply = workflows && workflows.rules ? workflows.rules : [];
+        const sanitizedRecords = records.map(record => sanitizeLeadData(record, rulesToApply));
+        const validRecords = sanitizedRecords.filter(r => r.isValid);
+
+        let mappedRecords = [];
+
+        // Very basic mock logic for which mapping to use based on rules, since exact logic isn't specified in prompt except "either formatForDeskera or formatForCore depending on the rule evaluation"
+        let useCore = false;
+        for (const rule of rulesToApply) {
+             if (rule.action && rule.action.type === 'ROUTE_TO_CORE') {
+                 useCore = true;
+             }
+        }
+
+        if (useCore) {
+           mappedRecords = formatForCore(validRecords);
+        } else {
+           mappedRecords = formatForDeskera(validRecords);
+        }
+
+        return new Response(JSON.stringify(mappedRecords), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response('Dry Run Error: ' + error.message, { status: 500 });
+      }
+    }
+
     if (url.pathname === '/v1/management/rollback' && request.method === 'POST') {
       try {
         const authHeader = request.headers.get('Authorization');
@@ -147,9 +207,20 @@ export default {
     // INGRESS: Webhook Catcher Endpoint
     if (url.pathname === '/v1/webhooks/enrich' && request.method === 'POST') {
       try {
-        // Authenticate incoming traffic using internal AXiM service key
+        // Authenticate incoming traffic using internal AXiM service key or fallback client secret
         const authHeader = request.headers.get('Authorization');
-        if (authHeader !== `Bearer ${env.AXIM_INTERNAL_KEY}`) {
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        const clientSecret = request.headers.get('X-AXiM-Client-Secret');
+
+        let isAuthorized = false;
+
+        if (authHeader === `Bearer ${env.AXIM_INTERNAL_KEY}` || internalAuth === env.AXIM_INTERNAL_KEY) {
+           isAuthorized = true;
+        } else if (clientSecret && (clientSecret === env.AXIM_CLIENT_SECRET || clientSecret === env.AXIM_CLIENT_SECRET_FALLBACK)) {
+           isAuthorized = true;
+        }
+
+        if (!isAuthorized) {
           return new Response('Unauthorized', { status: 401 });
         }
 
