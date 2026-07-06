@@ -30,3 +30,22 @@ export function formatForDeskera(records) {
 
   });
 }
+export function formatForCore(records) {
+  return records.map(record => {
+    const mapped = {
+      id: record.id || '',
+      firstName: record.firstName || record.first_name || '',
+      lastName: record.lastName || record.last_name || '',
+      emailAddress: record.email || '',
+      phoneNumber: record.phone || '',
+      organization: record.company || record.organization_name || '',
+      source_system: record.source || 'api_ingress',
+      enrichment_flag: record._enrichment_failed ? false : true
+    };
+    if (!mapped.emailAddress || mapped.emailAddress.trim() === '') {
+      mapped._is_invalid = true;
+      mapped._validation_reason = 'Critically missing Core-required field: emailAddress';
+    }
+    return mapped;
+  });
+}
