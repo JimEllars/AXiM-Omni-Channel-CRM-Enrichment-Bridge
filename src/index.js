@@ -8,9 +8,24 @@ import { enrichRecord } from './utils/enrichmentLogic.js';
  * Cloudflare Worker Entry Point
  * Omni-Channel CRM Enrichment Bridge
  */
+let cachedWorkflows = null;
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    // Handle CORS preflight requests
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-AXiM-Internal-Auth',
+          'Access-Control-Max-Age': '86400',
+        },
+      });
+    }
+
 
 
     if (url.pathname === '/v1/management/kv-check' && request.method === 'GET') {
@@ -43,7 +58,19 @@ export default {
             headers: { 'Content-Type': 'application/json' }
         });
       } catch (error) {
-        ctx.waitUntil(logTelemetry(env, 'KV_CHECK_FAULT', 'HIGH', error.message));
+        ctx.waitUntil(logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "kv_check_fault",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: error.message
+      }
+    }));
         return new Response('Internal Check Error', { status: 500 });
       }
     }
@@ -75,8 +102,45 @@ export default {
             headers: { 'Content-Type': 'application/json' }
         });
       } catch (error) {
-        ctx.waitUntil(logTelemetry(env, 'SYNC_FAULT', 'HIGH', error.message));
+        ctx.waitUntil(logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "sync_fault",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: error.message
+      }
+    }));
         return new Response('Sync Error', { status: 500 });
+      }
+    }
+
+    if (url.pathname === '/v1/management/rollback' && request.method === 'POST') {
+      try {
+        const authHeader = request.headers.get('Authorization');
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        if (authHeader !== `Bearer ${env.AXIM_INTERNAL_KEY}` && internalAuth !== env.AXIM_INTERNAL_KEY) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        const backup = await env.CRM_BRIDGE_ROUTING_RULES.get("config:automation_workflows:backup", "json");
+        if (backup) {
+          await env.CRM_BRIDGE_ROUTING_RULES.put("config:automation_workflows", JSON.stringify(backup));
+        }
+
+        if (typeof cachedWorkflows !== 'undefined') {
+          cachedWorkflows = null;
+        } else {
+          globalThis.cachedWorkflows = null;
+        }
+
+        return new Response(JSON.stringify({ status: 'Rollback Complete' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      } catch (error) {
+        return new Response('Rollback Error', { status: 500 });
       }
     }
 
@@ -121,7 +185,19 @@ export default {
         });
 
       } catch (error) {
-        ctx.waitUntil(logTelemetry(env, 'INGRESS_FAULT', 'HIGH', error.message));
+        ctx.waitUntil(logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "ingress_fault",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: error.message
+      }
+    }));
         return new Response('Internal Pipeline Error', { status: 500 });
       }
     }
@@ -132,7 +208,19 @@ export default {
   // SCHEDULED: Cron Trigger Handler for Database Sweeps
   async scheduled(event, env, ctx) {
     try {
-      await logTelemetry(env, 'CRON RUN', 'INFO', 'Nightly sync executed');
+      await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "cron_run",
+        severity: "INFO",
+        component_origin: "index.js",
+        error_message: 'Nightly sync executed'
+      }
+    });
 
       if (env.CRM_BRIDGE_DEDUPE) {
         let cursor = undefined;
@@ -146,7 +234,19 @@ export default {
               cursor: cursor
             });
           } catch (listError) {
-            await logTelemetry(env, 'CRON_KV_FAULT', 'HIGH', `list() failed: ${listError.message}`);
+            await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "cron_kv_fault",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `list() failed: ${listError.message}`
+      }
+    });
             return; // Exit gracefully
           }
 
@@ -156,7 +256,19 @@ export default {
               try {
                 recordStr = await env.CRM_BRIDGE_DEDUPE.get(key.name);
               } catch (getError) {
-                await logTelemetry(env, 'CRON_KV_FAULT', 'HIGH', `get() failed for ${key.name}: ${getError.message}`);
+                await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "cron_kv_fault",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `get() failed for ${key.name}: ${getError.message}`
+      }
+    });
                 continue;
               }
 
@@ -166,7 +278,19 @@ export default {
                   // Using ctx here as it is passed to processInBatches
                   await processInBatches(env, 'scheduled_sweep', [record], ctx);
                 } catch (processError) {
-                  await logTelemetry(env, 'CRON_PROCESS_FAULT', 'HIGH', `Failed to process ${key.name}: ${processError.message}`);
+                  await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "cron_process_fault",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `Failed to process ${key.name}: ${processError.message}`
+      }
+    });
                 }
               }
 
@@ -174,7 +298,19 @@ export default {
                 await env.CRM_BRIDGE_DEDUPE.delete(key.name);
                 totalSwept++;
               } catch (deleteError) {
-                await logTelemetry(env, 'CRON_KV_FAULT', 'HIGH', `delete() failed for ${key.name}: ${deleteError.message}`);
+                await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "cron_kv_fault",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `delete() failed for ${key.name}: ${deleteError.message}`
+      }
+    });
                 continue;
               }
             }
@@ -183,10 +319,34 @@ export default {
           cursor = listResult.list_complete ? undefined : listResult.cursor;
         } while (cursor);
 
-        await logTelemetry(env, 'CRON RUN', 'INFO', `[CRON RUN] Swept: ${totalSwept} pending records from KV`);
+        await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "cron_run",
+        severity: "INFO",
+        component_origin: "index.js",
+        error_message: `[CRON RUN] Swept: ${totalSwept} pending records from KV`
+      }
+    });
       }
     } catch (error) {
-      console.error('Cron job error:', error);
+      await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "cron_fault",
+        severity: "CRITICAL",
+        component_origin: "index.js",
+        error_message: error.message
+      }
+    });
     }
   }
 };
@@ -230,9 +390,33 @@ async function processInBatches(env, source, rawRecords, ctx) {
         successCount = cleanRecords.length;
       }
 
-      await logTelemetry(env, 'BATCH_SUMMARY', 'INFO', `[BATCH IMPORT] Processed: ${chunk.length} | Success: ${successCount} | Enrichment Fails: ${enrichmentFailCount}`);
+      await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "batch_summary",
+        severity: "INFO",
+        component_origin: "index.js",
+        error_message: `[BATCH IMPORT] Processed: ${chunk.length} | Success: ${successCount} | Enrichment Fails: ${enrichmentFailCount}`
+      }
+    });
     } catch (error) {
-      await logTelemetry(env, 'BATCH_PROCESS_FAULT', 'HIGH', `Error in batch ${i / BATCH_SIZE}: ${error.message}`);
+      await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "batch_process_fault",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `Error in batch ${i / BATCH_SIZE}: ${error.message}`
+      }
+    });
     }
   }
 }
@@ -249,18 +433,54 @@ async function processAndDispatch(env, source, records, ctx) {
            try {
                hashedKey = await hashDedupeKey(emailKey);
            } catch (hashError) {
-               await logTelemetry(env, 'HASH_FAULT', 'HIGH', `Failed to hash dedupe key for ${emailKey}: ${hashError.message}. Failing open.`);
+               await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "hash_fault",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `Failed to hash dedupe key for ${emailKey}: ${hashError.message}. Failing open.`
+      }
+    });
            }
 
            if (hashedKey) {
                try {
                    isDuplicate = await env.CRM_BRIDGE_DEDUPE.get(`lead:${hashedKey}`);
                } catch (kvError) {
-                   await logTelemetry(env, 'KV_READ_FAULT', 'HIGH', `Failed to check deduplication for ${emailKey}: ${kvError.message}. Failing open.`);
+                   await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "kv_read_fault",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `Failed to check deduplication for ${emailKey}: ${kvError.message}. Failing open.`
+      }
+    });
                }
            }
            if (isDuplicate) {
-               await logTelemetry(env, 'DUPLICATE_CAUGHT', 'INFO', `Duplicate record caught for email: ${emailKey}`);
+               await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "duplicate_caught",
+        severity: "INFO",
+        component_origin: "index.js",
+        error_message: `Duplicate record caught for email: ${emailKey}`
+      }
+    });
            } else {
                uniqueRecords.push(record);
            }
@@ -315,7 +535,19 @@ async function processAndDispatch(env, source, records, ctx) {
              original: uniqueRecords.filter((_, i) => mappedRecords[i]._is_invalid),
              mapped: invalidRecords
          });
-         await logTelemetry(env, 'PRE_FLIGHT_VALIDATION_FAILED', 'HIGH', `${invalidRecords.length} records failed pre-flight validation.`);
+         await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "pre_flight_validation_failed",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `${invalidRecords.length} records failed pre-flight validation.`
+      }
+    });
      }
 
      if (validRecords.length === 0) return;
@@ -342,10 +574,34 @@ async function processAndDispatch(env, source, records, ctx) {
              original: uniqueRecords,
              mapped: dispatchPayload
            });
-           await logTelemetry(env, 'EGRESS_FAULT_ALBATO', 'HIGH', `Albato rejection: ${albatoRes.status}`);
+           await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "egress_fault_albato",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `Albato rejection: ${albatoRes.status}`
+      }
+    });
        } else {
            albatoSuccess = true;
-           await logTelemetry(env, 'SYNC_SUCCESS_ALBATO', 'INFO', `Successfully synced ${uniqueRecords.length} records to Albato`);
+           await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "sync_success_albato",
+        severity: "INFO",
+        component_origin: "index.js",
+        error_message: `Successfully synced ${uniqueRecords.length} records to Albato`
+      }
+    });
        }
      } catch (e) {
          await logToRecovery(env, source, "Albato Network Error", {
@@ -353,7 +609,19 @@ async function processAndDispatch(env, source, records, ctx) {
              original: uniqueRecords,
              mapped: dispatchPayload
          });
-         await logTelemetry(env, 'EGRESS_FAULT_ALBATO', 'HIGH', `Albato dispatch failed: ${e.message}`);
+         await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "egress_fault_albato",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `Albato dispatch failed: ${e.message}`
+      }
+    });
      }
 
      // 2. Dispatch to AXiM Core (Bulk Volume)
@@ -370,10 +638,34 @@ async function processAndDispatch(env, source, records, ctx) {
              original: uniqueRecords,
              mapped: dispatchPayload
            });
-           await logTelemetry(env, 'EGRESS_FAULT_CORE', 'HIGH', `Core rejection: ${coreRes.status}`);
+           await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "egress_fault_core",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `Core rejection: ${coreRes.status}`
+      }
+    });
        } else {
            coreSuccess = true;
-           await logTelemetry(env, 'SYNC_SUCCESS_CORE', 'INFO', `Successfully synced ${uniqueRecords.length} records to AXiM Core`);
+           await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "sync_success_core",
+        severity: "INFO",
+        component_origin: "index.js",
+        error_message: `Successfully synced ${uniqueRecords.length} records to AXiM Core`
+      }
+    });
        }
      } catch (e) {
          await logToRecovery(env, source, "Core Network Error", {
@@ -381,7 +673,19 @@ async function processAndDispatch(env, source, records, ctx) {
              original: uniqueRecords,
              mapped: dispatchPayload
          });
-         await logTelemetry(env, 'EGRESS_FAULT_CORE', 'HIGH', `Core dispatch failed: ${e.message}`);
+         await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "egress_fault_core",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `Core dispatch failed: ${e.message}`
+      }
+    });
      }
 
      // Only save to KV after 200 OK from either destination
@@ -393,7 +697,19 @@ async function processAndDispatch(env, source, records, ctx) {
                  try {
                      hashedKey = await hashDedupeKey(emailKey);
                  } catch (hashError) {
-                     await logTelemetry(env, 'HASH_FAULT', 'HIGH', `Failed to hash dedupe key for ${emailKey} during write: ${hashError.message}.`);
+                     await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "hash_fault",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `Failed to hash dedupe key for ${emailKey} during write: ${hashError.message}.`
+      }
+    });
                  }
 
                  if (hashedKey) {
@@ -404,18 +720,54 @@ async function processAndDispatch(env, source, records, ctx) {
                              try {
                                  await env.CRM_BRIDGE_DEDUPE.put(`lead:${hashedKey}`, "true", { expirationTtl: 86400 });
                              } catch (writeErr) {
-                                 await logTelemetry(env, 'KV_WRITE_FAULT', 'HIGH', `Failed to write deduplication lock for ${emailKey}: ${writeErr.message}`);
+                                 await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "kv_write_fault",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `Failed to write deduplication lock for ${emailKey}: ${writeErr.message}`
+      }
+    });
                              }
                          })());
                      } else {
                          try {
                                  await env.CRM_BRIDGE_DEDUPE.put(`lead:${hashedKey}`, "true", { expirationTtl: 86400 });
                              } catch (writeErr) {
-                                 await logTelemetry(env, 'KV_WRITE_FAULT', 'HIGH', `Failed to write deduplication lock for ${emailKey}: ${writeErr.message}`);
+                                 await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "kv_write_fault",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `Failed to write deduplication lock for ${emailKey}: ${writeErr.message}`
+      }
+    });
                              }
                          }
                      } catch (outerErr) {
-                         await logTelemetry(env, 'KV_WRITE_FAULT', 'HIGH', `Failed to initiate write for ${emailKey}: ${outerErr.message}`);
+                         await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "kv_write_fault",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `Failed to initiate write for ${emailKey}: ${outerErr.message}`
+      }
+    });
                      }
                  }
              }
@@ -423,7 +775,19 @@ async function processAndDispatch(env, source, records, ctx) {
      }
 
   } catch (error) {
-     await logTelemetry(env, 'DISPATCH_FAULT', 'CRITICAL', error.message);
+     await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "dispatch_fault",
+        severity: "CRITICAL",
+        component_origin: "index.js",
+        error_message: error.message
+      }
+    });
   }
 }
 
@@ -431,7 +795,19 @@ async function processAndDispatch(env, source, records, ctx) {
 // --- SCHEDULED HANDLERS ---
 async function performDatabaseSweep(env) {
   try {
-    await logTelemetry(env, 'SWEEP_START', 'INFO', 'Starting nightly database sweep for enrichment.');
+    await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "sweep_start",
+        severity: "INFO",
+        component_origin: "index.js",
+        error_message: 'Starting nightly database sweep for enrichment.'
+      }
+    });
 
     // Placeholder for actual database sweep logic
     // In a real implementation, this would query KV (or another DB) for leads:
@@ -452,8 +828,32 @@ async function performDatabaseSweep(env) {
       await processInBatches(env, 'scheduled_sweep', sweepBatches, null);
     }
 
-    await logTelemetry(env, 'SWEEP_COMPLETE', 'INFO', `Completed database sweep. Processed ${mockSweepData.length} records.`);
+    await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "sweep_complete",
+        severity: "INFO",
+        component_origin: "index.js",
+        error_message: `Completed database sweep. Processed ${mockSweepData.length} records.`
+      }
+    });
   } catch (error) {
-    await logTelemetry(env, 'SWEEP_FAULT', 'HIGH', `Error during database sweep: ${error.message}`);
+    await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "sweep_fault",
+        severity: "HIGH",
+        component_origin: "index.js",
+        error_message: `Error during database sweep: ${error.message}`
+      }
+    });
   }
 }

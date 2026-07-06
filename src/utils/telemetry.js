@@ -1,30 +1,39 @@
-/**
- * Pushes asynchronous telemetry logs to AXiM Core Ingestion Gateway.
- * @param {Object} env - Cloudflare Worker environment bindings
- * @param {string} eventType - The classification of the event
- * @param {string} severity - 'INFO', 'HIGH', 'CRITICAL'
- * @param {string} message - Descriptive log message
- */
 import { logToSheets } from './workerSheets.js';
 
-export async function logTelemetry(env, eventType, severity, message) {
-  // Conditionally route to Google Sheets Logs tab for UI monitoring
-  await logToSheets(env, eventType, severity, message);
+export async function logTelemetry(env, payloadOrEventType, severity, message) {
+  let payload;
+  let eventTypeStr = payloadOrEventType;
+  let severityStr = severity;
+  let messageStr = message;
 
-  const payload = {
-    telemetry_envelope: {
-      project_id: "AXIM_CRM_BRIDGE", // Critical: Exact routing tag for Core
-      environment: env.ENVIRONMENT || "production",
-      timestamp: new Date().toISOString(),
-      idempotency_key: `evt_crm_${crypto.randomUUID()}`
-    },
-    event_payload: {
-      event_type: eventType,
-      severity: severity,
-      component_origin: "worker_pipeline",
-      error_message: message
+  if (typeof payloadOrEventType === 'object') {
+    payload = payloadOrEventType;
+    eventTypeStr = payload.event_payload.event_type;
+    severityStr = payload.event_payload.severity;
+    messageStr = payload.event_payload.error_message;
+    // ensure idempotency key exists
+    if (!payload.telemetry_envelope.idempotency_key) {
+        payload.telemetry_envelope.idempotency_key = `evt_crm_${crypto.randomUUID()}`;
     }
-  };
+  } else {
+    payload = {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString(),
+        idempotency_key: `evt_crm_${crypto.randomUUID()}`
+      },
+      event_payload: {
+        event_type: eventTypeStr,
+        severity: severityStr,
+        component_origin: "worker_pipeline",
+        error_message: messageStr
+      }
+    };
+  }
+
+  // Conditionally route to Google Sheets Logs tab for UI monitoring
+  await logToSheets(env, eventTypeStr, severityStr, messageStr);
 
   try {
     // Push directly to AXiM Core Ingestion Gateway

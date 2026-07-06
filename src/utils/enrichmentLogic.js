@@ -62,7 +62,19 @@ async function thirdPartyEnrichment(env, provider, data) {
           return await response.json();
         } catch (jsonErr) {
           if (env) {
-            await logTelemetry(env, 'ENRICHMENT_FAULT', 'HIGH', `JSON_PARSE_ERROR: Failed to parse response from ${provider}`);
+            await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "enrichment_fault",
+        severity: "HIGH",
+        component_origin: "enrichmentLogic.js",
+        error_message: `JSON_PARSE_ERROR: Failed to parse response from ${provider}`
+      }
+    });
           }
           data._enrichment_failed = true;
           data._enrichment_error = `JSON_PARSE_ERROR: Failed to parse response from ${provider}`;
@@ -171,7 +183,19 @@ export async function enrichRecord(env, record) {
         result._enrichment_failed = true;
         result._enrichment_error = res.reason.message;
         if (env) {
-          await logTelemetry(env, 'ENRICHMENT_FAULT', 'HIGH', `Enrichment failed: ${res.reason.message}`);
+          await logTelemetry(env, {
+      telemetry_envelope: {
+        project_id: "AXIM_CRM_BRIDGE",
+        environment: env.ENVIRONMENT || "production",
+        timestamp: new Date().toISOString()
+      },
+      event_payload: {
+        event_type: "enrichment_fault",
+        severity: "HIGH",
+        component_origin: "enrichmentLogic.js",
+        error_message: `Enrichment failed: ${res.reason.message}`
+      }
+    });
         }
         break; // Only need to flag once if any fail
       }

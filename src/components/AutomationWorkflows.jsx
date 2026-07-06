@@ -113,6 +113,36 @@ export default function AutomationWorkflows() {
     const newWorkflows = workflows.filter(wf => wf.id !== id);
     await syncWorkflows(newWorkflows, id);
   };
+  const revertToPrevious = async () => {
+    try {
+      const response = await fetch('/v1/management/rollback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-AXiM-Internal-Auth': import.meta.env.VITE_AXIM_INTERNAL_KEY || '',
+          'Authorization': `Bearer ${import.meta.env.VITE_AXIM_INTERNAL_KEY || ''}`
+        }
+      });
+      if (response.ok) {
+        // Refresh local state by fetching workflows again
+        const savedWorkflows = await configService.get('automation_workflows', null);
+        if (savedWorkflows && Array.isArray(savedWorkflows)) {
+          setWorkflows(savedWorkflows);
+        } else if (savedWorkflows && Array.isArray(savedWorkflows.rules)) {
+          setWorkflows(savedWorkflows.rules);
+          setConfigVersion(savedWorkflows.version || "1.0.0");
+          if (savedWorkflows.last_updated) {
+            setConfigLastUpdated(new Date(savedWorkflows.last_updated).toLocaleString());
+          }
+        }
+      } else {
+        console.error('Rollback failed');
+      }
+    } catch (e) {
+      console.error('Rollback fetch failed', e);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end mb-8">
@@ -133,12 +163,20 @@ export default function AutomationWorkflows() {
             </span>
           )}
         </div>
-        <button
-          onClick={addWorkflow}
-          className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 shadow-lg shadow-blue-600/20"
-        >
-          <SafeIcon icon={FiPlus} /> ADD TRIGGER
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={revertToPrevious}
+            className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-5 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 border border-slate-700"
+          >
+            REVERT TO PREVIOUS VERSION
+          </button>
+          <button
+            onClick={addWorkflow}
+            className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 shadow-lg shadow-blue-600/20"
+          >
+            <SafeIcon icon={FiPlus} /> ADD TRIGGER
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4">
