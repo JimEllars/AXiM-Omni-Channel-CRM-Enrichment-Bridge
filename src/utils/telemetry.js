@@ -32,21 +32,22 @@ export async function logTelemetry(env, payloadOrEventType, severity, message) {
     };
   }
 
-  // Conditionally route to Google Sheets Logs tab for UI monitoring
-  await logToSheets(env, eventTypeStr, severityStr, messageStr);
+  // Sheets logging is handled inside this async function, but we shouldn't await it here if we want to ensure
+  // nothing blocks. We remove await to enforce that telemetry log itself is fire and forget, even within ctx.waitUntil.
+  logToSheets(env, eventTypeStr, severityStr, messageStr).catch(err => console.error("Sheets telemetry err", err));
 
   try {
     // Push directly to AXiM Core Ingestion Gateway
-    await fetch('https://api.axim.us.com/v1/telemetry/ingest', {
+    fetch('https://api.axim.us.com/v1/telemetry/ingest', {
       method: 'POST',
       headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}`
       },
       body: JSON.stringify(payload)
-    });
+    }).catch(err => console.error("Telemetry Delivery Failure:", err));
   } catch (error) {
     // Failsafe catch: Do not bring down the worker if telemetry fails
-    console.error("Telemetry Delivery Failure:", error);
+    console.error("Telemetry Processing Error:", error);
   }
 }

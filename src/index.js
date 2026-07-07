@@ -240,10 +240,18 @@ export default {
       try {
 
         // IP Whitelisting Check
-        const clientIp = request.headers.get('CF-Connecting-IP');
+        const clientIpHeader = request.headers.get('CF-Connecting-IP');
         if (env.ALLOWED_INGRESS_IPS && env.ALLOWED_INGRESS_IPS.trim() !== '') {
           const allowedIps = env.ALLOWED_INGRESS_IPS.split(',').map(ip => ip.trim());
-          if (clientIp && !allowedIps.includes(clientIp)) {
+          const clientIps = clientIpHeader ? clientIpHeader.split(',').map(ip => ip.trim()) : [];
+          // Block if no IP header is present when an allow-list exists
+          if (clientIps.length === 0) {
+            return new Response('Forbidden: IP not allowed', { status: 403 });
+          }
+          // Validate that the actual client IP is in the allow-list
+          // CF-Connecting-IP can have multiple comma-separated IPs if going through proxies
+          const clientIp = clientIps[0];
+          if (!allowedIps.includes(clientIp)) {
              return new Response('Forbidden: IP not allowed', { status: 403 });
           }
         }
