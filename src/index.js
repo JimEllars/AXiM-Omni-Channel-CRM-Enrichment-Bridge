@@ -9,6 +9,8 @@ import { enrichRecord } from './utils/enrichmentLogic.js';
  * Omni-Channel CRM Enrichment Bridge
  */
 let cachedWorkflows = null;
+let cachedIpWhitelist = null;
+let ipWhitelistCacheTime = 0;
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -113,19 +115,44 @@ export default {
           return new Response('Unauthorized', { status: 401 });
         }
 
-        const { workerSheetsRequest } = await import('./utils/workerSheets.js');
-        const data = await workerSheetsRequest(env, '/values/Config!A:B');
-
         let count = 0;
-        if (data.values && env.CRM_BRIDGE_ROUTING_RULES) {
-          for (const row of data.values) {
-             const key = row[0];
-             const val = row[1];
-             if (key && val) {
-               await env.CRM_BRIDGE_ROUTING_RULES.put(`config:${key}`, val);
-               count++;
-             }
-          }
+
+        // Try to parse JSON payload first (for UI updates like IP whitelist)
+        let hasJsonPayload = false;
+        try {
+            const reqClone = request.clone();
+            const payload = await reqClone.json();
+            if (payload && Array.isArray(payload.ip_whitelist) && env.CRM_BRIDGE_ROUTING_RULES) {
+                await env.CRM_BRIDGE_ROUTING_RULES.put('config:ip_whitelist', JSON.stringify(payload.ip_whitelist));
+
+                // Cache Busting
+                cachedIpWhitelist = null;
+                globalThis.cachedIpWhitelist = null;
+                ipWhitelistCacheTime = 0;
+                globalThis.ipWhitelistCacheTime = 0;
+
+                count++;
+                hasJsonPayload = true;
+            }
+        } catch(e) {
+            // Not a JSON payload, proceed to sheet sync
+        }
+
+        // If not a JSON update, assume standard worker sheets sync
+        if (!hasJsonPayload) {
+            const { workerSheetsRequest } = await import('./utils/workerSheets.js');
+            const data = await workerSheetsRequest(env, '/values/Config!A:B');
+
+            if (data.values && env.CRM_BRIDGE_ROUTING_RULES) {
+            for (const row of data.values) {
+                const key = row[0];
+                const val = row[1];
+                if (key && val) {
+                await env.CRM_BRIDGE_ROUTING_RULES.put(`config:${key}`, val);
+                count++;
+                }
+            }
+            }
         }
 
         return new Response(JSON.stringify({ status: 'Synced', count }), {
@@ -241,17 +268,30 @@ export default {
 
         // IP Whitelisting Check
         const clientIpHeader = request.headers.get('CF-Connecting-IP');
-        if (env.ALLOWED_INGRESS_IPS && env.ALLOWED_INGRESS_IPS.trim() !== '') {
-          const allowedIps = env.ALLOWED_INGRESS_IPS.split(',').map(ip => ip.trim());
+        const now = Date.now();
+        if (!cachedIpWhitelist || now - ipWhitelistCacheTime > 60000) {
+            if (env.CRM_BRIDGE_ROUTING_RULES) {
+                const kvIps = await env.CRM_BRIDGE_ROUTING_RULES.get('config:ip_whitelist', 'json');
+                if (kvIps && Array.isArray(kvIps)) {
+                    cachedIpWhitelist = kvIps;
+                } else {
+                    cachedIpWhitelist = []; // Empty or null -> fail-open logic
+                }
+            } else {
+                cachedIpWhitelist = [];
+            }
+            ipWhitelistCacheTime = now;
+            globalThis.cachedIpWhitelist = cachedIpWhitelist;
+            globalThis.ipWhitelistCacheTime = ipWhitelistCacheTime;
+        }
+
+        if (cachedIpWhitelist && cachedIpWhitelist.length > 0) {
           const clientIps = clientIpHeader ? clientIpHeader.split(',').map(ip => ip.trim()) : [];
-          // Block if no IP header is present when an allow-list exists
           if (clientIps.length === 0) {
             return new Response('Forbidden: IP not allowed', { status: 403 });
           }
-          // Validate that the actual client IP is in the allow-list
-          // CF-Connecting-IP can have multiple comma-separated IPs if going through proxies
           const clientIp = clientIps[0];
-          if (!allowedIps.includes(clientIp)) {
+          if (!cachedIpWhitelist.includes(clientIp)) {
              return new Response('Forbidden: IP not allowed', { status: 403 });
           }
         }
