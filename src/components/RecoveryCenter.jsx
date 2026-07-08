@@ -46,8 +46,12 @@ export default function RecoveryCenter({ onRetrySuccess }) {
 
   const handleDismiss = async (id) => {
     if (!window.confirm("Are you sure you want to dismiss this system alert?")) return;
+    const oldItems = [...items];
+    setItems(items.filter(i => i.id !== id)); // optimistic UI update
+
+    // Briefly show a loading/dismissing state?
+    // We can just rely on the optimistic update which removes it immediately.
     try {
-      setItems(items.filter(i => i.id !== id)); // optimistic UI update
       const key = import.meta.env.VITE_AXIM_INTERNAL_KEY;
       const response = await fetch(`/v1/management/dlq-dismiss?recordId=${encodeURIComponent(id)}`, {
         method: 'DELETE',
@@ -60,8 +64,9 @@ export default function RecoveryCenter({ onRetrySuccess }) {
       }
     } catch (e) {
       console.error(e);
-      // reload to revert optimistic UI update on error
-      loadItems();
+      // revert optimistic UI update on error
+      setItems(oldItems);
+      alert("Failed to dismiss alert. Check console.");
     }
   };
 
