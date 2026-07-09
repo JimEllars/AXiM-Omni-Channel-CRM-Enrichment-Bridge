@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import SafeIcon from '../common/SafeIcon';
 import AnalyticsChart from './AnalyticsChart';
 import { FiUsers, FiFilter, FiZap, FiAlertTriangle, FiTrendingUp, FiActivity } from 'react-icons/fi';
@@ -6,11 +6,38 @@ import { FiCpu } from 'react-icons/fi';
 import { motion } from 'framer-motion';
 
 export default function Dashboard({ stats }) {
+  const [aiRescues, setAiRescues] = useState(null);
+  const [loadingRescues, setLoadingRescues] = useState(true);
+
+  useEffect(() => {
+    const fetchAnalytics = async () => {
+      try {
+        const response = await fetch('/v1/management/analytics', {
+          headers: {
+            'X-AXiM-Internal-Auth': import.meta.env.VITE_AXIM_INTERNAL_KEY || ''
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setAiRescues(data.cognitive_rescues);
+        } else {
+          setAiRescues(0);
+        }
+      } catch (err) {
+        console.error('Failed to fetch analytics:', err);
+        setAiRescues(0);
+      } finally {
+        setLoadingRescues(false);
+      }
+    };
+    fetchAnalytics();
+  }, []);
+
   const cards = [
     { title: 'Total Ingress', value: stats.total, icon: FiUsers, color: 'text-blue-400', bg: 'bg-blue-400/10', trend: '+12%' },
     { title: 'Cleansed & Routed', value: stats.passed, icon: FiFilter, color: 'text-emerald-400', bg: 'bg-emerald-400/10', trend: '+18%' },
     { title: 'Filtered/Dropped', value: stats.dropped, icon: FiAlertTriangle, color: 'text-amber-400', bg: 'bg-amber-400/10', trend: '-2%' },
-    { title: 'AI Enriched Leads', value: stats.ai_enriched || 0, icon: FiCpu, color: 'text-indigo-400', bg: 'bg-indigo-400/10', trend: '+NEW' },
+    { title: 'Cognitive Rescues', value: loadingRescues ? '...' : (aiRescues || 0), icon: FiCpu, color: 'text-indigo-400', bg: 'bg-indigo-400/10', trend: '+NEW' },
     { title: 'Avg Latency', value: '42ms', icon: FiZap, color: 'text-purple-400', bg: 'bg-purple-400/10', trend: 'STABLE' },
   ];
 

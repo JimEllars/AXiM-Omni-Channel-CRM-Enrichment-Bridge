@@ -242,6 +242,19 @@ export async function callCognitiveProxy(env, ctx, payload) {
                 ai_enriched: true,
                 enriched_at: new Date().toISOString()
             };
+
+            // Increment KV counter for analytics
+            if (env && env.CRM_BRIDGE_ROUTING_RULES && ctx && ctx.waitUntil) {
+                ctx.waitUntil((async () => {
+                    try {
+                        const currentVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:ai_rescues:total');
+                        const newVal = (currentVal ? parseInt(currentVal, 10) : 0) + 1;
+                        await env.CRM_BRIDGE_ROUTING_RULES.put('analytics:ai_rescues:total', newVal.toString());
+                    } catch (e) {
+                        console.error('Failed to increment ai_rescues counter:', e);
+                    }
+                })());
+            }
         }
     } catch(e) { /* ignore parse errors */ }
 
