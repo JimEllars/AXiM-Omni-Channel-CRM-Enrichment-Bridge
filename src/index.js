@@ -638,6 +638,72 @@ export default {
       }
     }));
       }
+
+      // Phase 1: Supabase Stale Record Sweep (Worker Cron)
+      try {
+        const coreRestUrl = env.AXIM_CORE_REST_URL || 'https://api.axim.us.com';
+        const coreEndpoint = `${coreRestUrl}/rest/v1/crm_contacts`;
+        const ninetyDaysAgo = new Date();
+        ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+        const dateStr = ninetyDaysAgo.toISOString();
+
+        const queryUrl = `${coreEndpoint}?created_at=lte.${dateStr}&firmographic_data=is.null&limit=50`;
+
+        const supabaseRes = await fetch(queryUrl, {
+          method: 'GET',
+          headers: {
+            'apikey': env.AXIM_INTERNAL_KEY,
+            'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (supabaseRes.ok) {
+          const staleRecords = await supabaseRes.json();
+          if (staleRecords && staleRecords.length > 0) {
+            const enrichPromises = staleRecords.map(async (record) => {
+              try {
+                // Ensure the record is pushed to the enrichment waterfall
+                // sanitizeLeadData ensures the structure is correct
+                const sanitized = sanitizeLeadData(record);
+                if (sanitized.isValid) {
+                   return await enrichRecord(env, ctx, sanitized);
+                }
+                return record;
+              } catch (e) {
+                return { ...record, _enrichment_failed: true, _enrichment_error: e.message };
+              }
+            });
+
+            const settled = await Promise.allSettled(enrichPromises);
+
+            const cleanRecords = [];
+            for (const res of settled) {
+              if (res.status === 'fulfilled' && res.value && !res.value._enrichment_failed) {
+                 cleanRecords.push(res.value);
+              }
+            }
+
+            if (cleanRecords.length > 0) {
+              await processAndDispatch(env, 'supabase_stale_sweep', cleanRecords, ctx);
+            }
+          }
+        }
+      } catch (sweepErr) {
+        ctx.waitUntil(logTelemetry(env, {
+          telemetry_envelope: {
+            project_id: "AXIM_CRM_BRIDGE",
+            environment: env.ENVIRONMENT || "production",
+            timestamp: new Date().toISOString()
+          },
+          event_payload: {
+            event_type: "cron_sweep_fault",
+            severity: "HIGH",
+            component_origin: "index.js",
+            error_message: `Supabase sweep failed: ${sweepErr.message}`
+          }
+        }));
+      }
     } catch (error) {
       ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
@@ -1009,67 +1075,3 @@ async function processAndDispatch(env, source, records, ctx) {
 
 
 // --- SCHEDULED HANDLERS ---
-async function performDatabaseSweep(env, ctx) {
-  try {
-    ctx.waitUntil(logTelemetry(env, {
-      telemetry_envelope: {
-        project_id: "AXIM_CRM_BRIDGE",
-        environment: env.ENVIRONMENT || "production",
-        timestamp: new Date().toISOString()
-      },
-      event_payload: {
-        event_type: "sweep_start",
-        severity: "INFO",
-        component_origin: "index.js",
-        error_message: 'Starting nightly database sweep for enrichment.'
-      }
-    }));
-
-    // Placeholder for actual database sweep logic
-    // In a real implementation, this would query KV (or another DB) for leads:
-    // 1. Tagged with needs_enrichment: true
-    // 2. Older than 90 days
-
-    const mockSweepData = [
-      { email: 'stale1@example.com', name: 'Stale Lead', needs_enrichment: true },
-      { email: 'stale2@example.com', name: 'Old Lead' } // Mocking > 90 days old
-    ];
-
-    // Route them back through the enrichment logic
-    const sweepBatches = mockSweepData.map(record => sanitizeLeadData(record))
-                                      .filter(sanitized => sanitized.isValid);
-
-    if (sweepBatches.length > 0) {
-      // pass undefined/null for ctx since it's cron, fallback handles it
-      await processInBatches(env, 'scheduled_sweep', sweepBatches, null);
-    }
-
-    ctx.waitUntil(logTelemetry(env, {
-      telemetry_envelope: {
-        project_id: "AXIM_CRM_BRIDGE",
-        environment: env.ENVIRONMENT || "production",
-        timestamp: new Date().toISOString()
-      },
-      event_payload: {
-        event_type: "sweep_complete",
-        severity: "INFO",
-        component_origin: "index.js",
-        error_message: `Completed database sweep. Processed ${mockSweepData.length} records.`
-      }
-    }));
-  } catch (error) {
-    ctx.waitUntil(logTelemetry(env, {
-      telemetry_envelope: {
-        project_id: "AXIM_CRM_BRIDGE",
-        environment: env.ENVIRONMENT || "production",
-        timestamp: new Date().toISOString()
-      },
-      event_payload: {
-        event_type: "sweep_fault",
-        severity: "HIGH",
-        component_origin: "index.js",
-        error_message: `Error during database sweep: ${error.message}`
-      }
-    }));
-  }
-}
