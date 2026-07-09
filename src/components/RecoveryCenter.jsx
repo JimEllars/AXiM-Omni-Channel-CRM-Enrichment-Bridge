@@ -14,16 +14,38 @@ export default function RecoveryCenter({ onRetrySuccess }) {
   const [selectedIds, setSelectedIds] = useState([]);
   const [isBulkRetrying, setIsBulkRetrying] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
+  const [offset, setOffset] = useState(0);
+  const [limit, setLimit] = useState(50);
+  const [hasMore, setHasMore] = useState(true);
 
   useEffect(() => {
     loadItems();
-  }, []);
+  }, [offset, limit]);
 
   const loadItems = async () => {
     setLoading(true);
     try {
-      const data = await recoveryService.getAll();
-      setItems(data);
+      const key = import.meta.env.VITE_AXIM_INTERNAL_KEY;
+      const res = await fetch(`/v1/management/dlq?limit=${limit}&offset=${offset}`, {
+        headers: {
+           'Authorization': `Bearer ${key}`
+        }
+      });
+      if (res.ok) {
+         const data = await res.json();
+         setItems(data.map(item => ({
+            id: item.id,
+            source: item.source,
+            reason: item.error_reason,
+            payload: typeof item.payload === 'string' ? item.payload : JSON.stringify(item.payload),
+            created_at: item.created_at
+         })));
+         setHasMore(data.length === limit);
+      } else {
+         console.error("Failed to fetch DLQ");
+      }
+    } catch(e) {
+      console.error(e);
     } finally {
       setLoading(false);
     }
@@ -98,36 +120,28 @@ export default function RecoveryCenter({ onRetrySuccess }) {
   const handleRetry = async (item, isBulk = false) => {
     setRetryingId(item.id);
     try {
-      const payload = JSON.parse(item.payload);
-      const result = sanitizeLeadData(payload);
-      if (result.isValid) {
-        const response = await fetch('/v1/webhooks/enrich', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-AXiM-Internal-Auth': import.meta.env.VITE_AXIM_INTERNAL_KEY
-          },
-          body: JSON.stringify({ source: 'dlq_retry', records: [result] })
-        });
+      const key = import.meta.env.VITE_AXIM_INTERNAL_KEY;
+      const response = await fetch('/v1/management/dlq-retry', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${key}`
+        },
+        body: JSON.stringify({ record_id: item.id })
+      });
 
-        if (response.status === 202) {
-          await recoveryService.remove(item.id);
-          if (!isBulk) {
-            setItems(prev => prev.filter(i => i.id !== item.id));
-          }
-          if (onRetrySuccess) onRetrySuccess(result);
-          // Optional toast
-          // alert(`Successfully re-queued payload for ID: ${item.id}`);
-        } else {
-           const errText = await response.text();
-           alert(`Failed to retry: ${response.status} ${errText}`);
+      if (response.ok) {
+        if (!isBulk) {
+          setItems(prev => prev.filter(i => i.id !== item.id));
         }
+        if (onRetrySuccess) onRetrySuccess();
       } else {
-        alert(`Validation Failed: ${result._error || 'Check fields'}`);
+        const errText = await response.text();
+        alert(`Failed to retry: ${response.status} ${errText}`);
       }
     } catch (e) {
       console.error(e);
-      alert("Invalid JSON payload");
+      alert("Error retrying record");
     } finally {
       setRetryingId(null);
     }
@@ -149,7 +163,24 @@ export default function RecoveryCenter({ onRetrySuccess }) {
       <div className="flex justify-between items-center">
         <div>
           <h3 className="text-white font-bold text-xl tracking-tight">Dead Letter Queue</h3>
-          <p className="text-slate-500 text-xs mt-1">Manual intervention required for {items.length} failed records.</p>
+          <p className="text-slate-500 text-xs mt-1">Manual intervention required.</p>
+        </div>
+        <div className="flex items-center gap-2">
+            <button
+              onClick={() => setOffset(Math.max(0, offset - limit))}
+              disabled={offset === 0}
+              className="px-3 py-1 bg-slate-800 text-slate-300 rounded text-xs disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <span className="text-slate-400 text-xs">Page {Math.floor(offset / limit) + 1}</span>
+            <button
+              onClick={() => setOffset(offset + limit)}
+              disabled={!hasMore}
+              className="px-3 py-1 bg-slate-800 text-slate-300 rounded text-xs disabled:opacity-50"
+            >
+              Next
+            </button>
         </div>
         {selectedIds.length > 0 && (
           <div className="flex items-center gap-4">
