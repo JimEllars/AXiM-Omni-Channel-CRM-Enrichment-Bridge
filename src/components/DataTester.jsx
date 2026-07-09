@@ -18,6 +18,7 @@ export default function DataTester({ onPipelineRun, activeRules }) {
   const [inputJson, setInputJson] = useState(JSON.stringify(sampleData, null, 2));
   const [outputResult, setOutputResult] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [useCognitive, setUseCognitive] = useState(false);
 
 
   const copyToClipboard = (text, idx) => {
@@ -26,24 +27,62 @@ export default function DataTester({ onPipelineRun, activeRules }) {
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
-  const handleTest = () => {
+  const handleTest = async () => {
     setIsProcessing(true);
-    setTimeout(() => {
-      try {
-        const parsed = JSON.parse(inputJson);
-        if (parsed.records && Array.isArray(parsed.records)) {
-          const cleaned = parsed.records.map(record => sanitizeLeadData(record, activeRules));
-          setOutputResult(cleaned);
-          if (onPipelineRun) onPipelineRun(cleaned);
+    setOutputResult(null);
+
+    try {
+      const parsed = JSON.parse(inputJson);
+      if (!parsed.records || !Array.isArray(parsed.records)) {
+        setOutputResult({ error: "Invalid format. Must contain 'records' array." });
+        setIsProcessing(false);
+        return;
+      }
+
+      if (useCognitive) {
+        const key = import.meta.env.VITE_AXIM_INTERNAL_KEY;
+        const res = await fetch('/v1/management/cognitive-test', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${key}`
+          },
+          body: JSON.stringify(parsed)
+        });
+
+        if (res.ok) {
+           const data = await res.json();
+           // Wrap in an array for consistent rendering
+           const resultArr = Array.isArray(data) ? data : [data];
+           // Mark as 'isValid' so the UI doesn't show as rejected
+           const renderable = resultArr.map(d => ({ ...d, isValid: true }));
+           setOutputResult(renderable);
+           if (onPipelineRun) onPipelineRun(renderable);
         } else {
-          setOutputResult({ error: "Invalid format. Must contain 'records' array." });
+           const errData = await res.text();
+           setOutputResult({ error: `AI Extraction Failed: ${res.status} ${errData}` });
         }
-      } catch (e) {
-        setOutputResult({ error: "Invalid JSON input." });
-      } finally {
+      } else {
+        // Standard dry run
+        setTimeout(() => {
+          try {
+            const cleaned = parsed.records.map(record => sanitizeLeadData(record, activeRules));
+            setOutputResult(cleaned);
+            if (onPipelineRun) onPipelineRun(cleaned);
+          } catch(e) {
+            setOutputResult({ error: "Pipeline processing error." });
+          }
+        }, 600);
+      }
+    } catch (e) {
+      setOutputResult({ error: "Invalid JSON input." });
+    } finally {
+      if (!useCognitive) {
+        setTimeout(() => setIsProcessing(false), 600);
+      } else {
         setIsProcessing(false);
       }
-    }, 600);
+    }
   };
 
   return (
@@ -51,7 +90,18 @@ export default function DataTester({ onPipelineRun, activeRules }) {
       <div className="flex flex-col lg:flex-row gap-6 h-[600px]">
         <div className="flex-1 flex flex-col bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
           <div className="px-6 py-4 border-b border-slate-800 bg-slate-800/20 flex justify-between items-center">
-            <h2 className="text-slate-200 font-bold text-xs uppercase tracking-widest">Ingress Payload</h2>
+            <div className="flex flex-col gap-2">
+              <h2 className="text-slate-200 font-bold text-xs uppercase tracking-widest">Ingress Payload</h2>
+              <label className="flex items-center gap-2 cursor-pointer group">
+                 <input
+                    type="checkbox"
+                    checked={useCognitive}
+                    onChange={(e) => setUseCognitive(e.target.checked)}
+                    className="rounded border-slate-700 bg-slate-800 text-purple-500 focus:ring-purple-500"
+                 />
+                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider group-hover:text-purple-400 transition-colors">Run through AI Extractor (DeepSeek-V3)</span>
+              </label>
+            </div>
             <button 
               disabled={isProcessing} 
               onClick={handleTest} 

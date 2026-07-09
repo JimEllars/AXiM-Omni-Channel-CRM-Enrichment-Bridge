@@ -2,7 +2,7 @@ import { formatForDeskera, formatForCore } from './utils/mapper.js';
 import { sanitizeLeadData } from './utils/sanitize.js';
 import { logTelemetry } from './utils/telemetry.js';
 import { logToRecovery } from './utils/telemetry.js';
-import { enrichRecord } from './utils/enrichmentLogic.js';
+import { enrichRecord, callCognitiveProxy } from './utils/enrichmentLogic.js';
 
 /**
  * Cloudflare Worker Entry Point
@@ -30,6 +30,147 @@ export default {
 
 
 
+
+// GET route for DLQ pagination
+    if (url.pathname === '/v1/management/dlq' && request.method === 'GET') {
+      try {
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        const authHeader = request.headers.get('Authorization');
+
+        let isAuthorized = false;
+        if (authHeader === `Bearer ${env.AXIM_INTERNAL_KEY}` || internalAuth === env.AXIM_INTERNAL_KEY) {
+           isAuthorized = true;
+        }
+        if (!isAuthorized) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        const limit = parseInt(url.searchParams.get('limit')) || 50;
+        const offset = parseInt(url.searchParams.get('offset')) || 0;
+
+        const coreRestUrl = env.AXIM_CORE_REST_URL || 'https://api.axim.us.com';
+
+        const fetchRes = await fetch(`${coreRestUrl}/rest/v1/dlq_records?select=*&limit=${limit}&offset=${offset}&order=created_at.desc`, {
+          method: 'GET',
+          headers: {
+            'apikey': env.AXIM_INTERNAL_KEY,
+            'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}`
+          }
+        });
+
+        if (!fetchRes.ok) {
+           return new Response('Failed to fetch DLQ records', { status: 500 });
+        }
+
+        const data = await fetchRes.json();
+        return new Response(JSON.stringify(data), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response('Failed to fetch DLQ records', { status: 500 });
+      }
+    }
+
+    // POST route for DLQ retry execution
+    if (url.pathname === '/v1/management/dlq-retry' && request.method === 'POST') {
+      try {
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        const authHeader = request.headers.get('Authorization');
+
+        let isAuthorized = false;
+        if (authHeader === `Bearer ${env.AXIM_INTERNAL_KEY}` || internalAuth === env.AXIM_INTERNAL_KEY) {
+           isAuthorized = true;
+        }
+        if (!isAuthorized) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        const { record_id } = await request.json();
+        if (!record_id) {
+          return new Response('Missing record_id', { status: 400 });
+        }
+
+        const coreRestUrl = env.AXIM_CORE_REST_URL || 'https://api.axim.us.com';
+
+        // 1. Fetch specific record
+        const getRes = await fetch(`${coreRestUrl}/rest/v1/dlq_records?id=eq.${record_id}`, {
+          method: 'GET',
+          headers: {
+            'apikey': env.AXIM_INTERNAL_KEY,
+            'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}`
+          }
+        });
+
+        if (!getRes.ok) {
+           return new Response('Failed to fetch DLQ record', { status: 500 });
+        }
+
+        const dlqData = await getRes.json();
+        if (!dlqData || dlqData.length === 0) {
+           return new Response('Record not found', { status: 404 });
+        }
+
+        const record = dlqData[0];
+        let payload;
+        try {
+            payload = JSON.parse(record.payload);
+        } catch(e) {
+            payload = record.payload;
+        }
+
+        const recordsToProcess = Array.isArray(payload.records) ? payload.records : [payload];
+
+        // 2. Process and dispatch
+        // We reuse the processAndDispatch for core logic, but need to make sure we don't trigger ctx.waitUntil randomly
+        await processAndDispatch(env, record.source || 'dlq_retry', recordsToProcess, ctx);
+
+        // 3. Delete upon success
+        const deleteRes = await fetch(`${coreRestUrl}/rest/v1/dlq_records?id=eq.${record_id}`, {
+          method: 'DELETE',
+          headers: {
+            'apikey': env.AXIM_INTERNAL_KEY,
+            'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}`
+          }
+        });
+
+        if (!deleteRes.ok) {
+           return new Response('Retry executed but failed to delete from DLQ', { status: 500 });
+        }
+
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+      } catch (error) {
+        return new Response(`Retry Error: ${error.message}`, { status: 500 });
+      }
+    }
+
+    // POST route for Cognitive Testing Sandbox
+    if (url.pathname === '/v1/management/cognitive-test' && request.method === 'POST') {
+      try {
+        const authHeader = request.headers.get('Authorization');
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        if (authHeader !== `Bearer ${env.AXIM_INTERNAL_KEY}` && internalAuth !== env.AXIM_INTERNAL_KEY) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        const payload = await request.json();
+        const extracted = await callCognitiveProxy(env, ctx, payload);
+
+        return new Response(JSON.stringify(extracted), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
 
     // DELETE route for DLQ dismissal
     if (url.pathname === '/v1/management/dlq-dismiss' && request.method === 'DELETE') {

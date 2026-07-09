@@ -204,3 +204,56 @@ export async function enrichRecord(env, ctx, record) {
 
   return result;
 }
+
+export async function callCognitiveProxy(env, ctx, payload) {
+  // Use a hardcoded mock URL or actual if available
+  const proxyUrl = env?.COGNITIVE_PROXY_URL || 'https://api.deepseek.com/v1/chat/completions';
+  const apiKey = env?.DEEPSEEK_API_KEY || 'mock_key_for_sandbox';
+
+  try {
+    const response = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat', // Representing DeepSeek-V3
+        messages: [
+          { role: 'system', content: 'You are an AI data extractor. Extract structured information from the provided payload.' },
+          { role: 'user', content: JSON.stringify(payload) }
+        ],
+        response_format: { type: 'json_object' }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Cognitive Proxy Error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    let extractedContent = data.choices[0].message.content;
+    try {
+        extractedContent = JSON.parse(extractedContent);
+    } catch(e) { /* ignore parse errors */ }
+
+    return extractedContent;
+  } catch (error) {
+    if (env && ctx) {
+      ctx.waitUntil(logTelemetry(env, {
+        telemetry_envelope: {
+          project_id: "AXIM_CRM_BRIDGE",
+          environment: env.ENVIRONMENT || "production",
+          timestamp: new Date().toISOString()
+        },
+        event_payload: {
+          event_type: "cognitive_proxy_fault",
+          severity: "HIGH",
+          component_origin: "enrichmentLogic.js",
+          error_message: `Cognitive extraction failed: ${error.message}`
+        }
+      }));
+    }
+    throw error;
+  }
+}
