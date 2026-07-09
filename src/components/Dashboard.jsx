@@ -2,6 +2,7 @@ import React from 'react';
 import SafeIcon from '../common/SafeIcon';
 import AnalyticsChart from './AnalyticsChart';
 import { FiUsers, FiFilter, FiZap, FiAlertTriangle, FiTrendingUp, FiActivity } from 'react-icons/fi';
+import { FiCpu } from 'react-icons/fi';
 import { motion } from 'framer-motion';
 
 export default function Dashboard({ stats }) {
@@ -9,12 +10,13 @@ export default function Dashboard({ stats }) {
     { title: 'Total Ingress', value: stats.total, icon: FiUsers, color: 'text-blue-400', bg: 'bg-blue-400/10', trend: '+12%' },
     { title: 'Cleansed & Routed', value: stats.passed, icon: FiFilter, color: 'text-emerald-400', bg: 'bg-emerald-400/10', trend: '+18%' },
     { title: 'Filtered/Dropped', value: stats.dropped, icon: FiAlertTriangle, color: 'text-amber-400', bg: 'bg-amber-400/10', trend: '-2%' },
+    { title: 'AI Enriched Leads', value: stats.ai_enriched || 0, icon: FiCpu, color: 'text-indigo-400', bg: 'bg-indigo-400/10', trend: '+NEW' },
     { title: 'Avg Latency', value: '42ms', icon: FiZap, color: 'text-purple-400', bg: 'bg-purple-400/10', trend: 'STABLE' },
   ];
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {cards.map((card, i) => (
           <motion.div 
             initial={{ opacity: 0, y: 20 }} 

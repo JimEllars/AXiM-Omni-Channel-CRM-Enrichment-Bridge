@@ -235,6 +235,14 @@ export async function callCognitiveProxy(env, ctx, payload) {
     let extractedContent = data.choices[0].message.content;
     try {
         extractedContent = JSON.parse(extractedContent);
+
+        if (typeof extractedContent === 'object' && extractedContent !== null) {
+            extractedContent.metadata = {
+                ...(extractedContent.metadata || {}),
+                ai_enriched: true,
+                enriched_at: new Date().toISOString()
+            };
+        }
     } catch(e) { /* ignore parse errors */ }
 
     return extractedContent;
