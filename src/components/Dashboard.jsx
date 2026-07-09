@@ -14,7 +14,7 @@ export default function Dashboard({ stats }) {
       try {
         const response = await fetch('/v1/management/analytics', {
           headers: {
-            'X-AXiM-Internal-Auth': import.meta.env.VITE_AXIM_INTERNAL_KEY || ''
+            'X-AXiM-Internal-Auth': sessionStorage.getItem('AXIM_AUTH_KEY') || ''
           }
         });
         if (response.ok) {

@@ -88,7 +88,43 @@ export default function App() {
     { id: 'settings', label: 'Settings', icon: FiSettings },
   ];
 
+
+  const [authKey, setAuthKey] = useState(sessionStorage.getItem('AXIM_AUTH_KEY'));
+  const [tempKey, setTempKey] = useState('');
+
+  const handleUnlock = (e) => {
+    e.preventDefault();
+    if (tempKey) {
+        sessionStorage.setItem('AXIM_AUTH_KEY', tempKey);
+        setAuthKey(tempKey);
+    }
+  };
+
+  if (!authKey) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white font-sans">
+        <div className="bg-slate-900 p-8 rounded-2xl border border-slate-800 shadow-xl max-w-md w-full">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-2"><FiShield className="text-blue-500" /> System Locked</h2>
+            <p className="text-slate-400 mb-6 text-sm">Please provide the internal authentication key to access the dashboard.</p>
+            <form onSubmit={handleUnlock} className="flex flex-col gap-4">
+                <input
+                    type="password"
+                    value={tempKey}
+                    onChange={(e) => setTempKey(e.target.value)}
+                    placeholder="Enter Internal Auth Key..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 font-mono text-sm"
+                />
+                <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors">
+                    Unlock System
+                </button>
+            </form>
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading) {
+
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white font-sans">
         <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>

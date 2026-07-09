@@ -164,7 +164,7 @@ export default function DataImporter() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_AXIM_INTERNAL_KEY}`
+            'Authorization': `Bearer ${sessionStorage.getItem('AXIM_AUTH_KEY')}`
           },
           body: JSON.stringify({ source: 'manual_import', records: batch })
         });

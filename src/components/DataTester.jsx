@@ -40,7 +40,7 @@ export default function DataTester({ onPipelineRun, activeRules }) {
       }
 
       if (useCognitive) {
-        const key = import.meta.env.VITE_AXIM_INTERNAL_KEY;
+        const key = sessionStorage.getItem('AXIM_AUTH_KEY');
         const res = await fetch('/v1/management/cognitive-test', {
           method: 'POST',
           headers: {
