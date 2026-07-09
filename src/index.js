@@ -1,7 +1,7 @@
 import { formatForDeskera, formatForCore } from './utils/mapper.js';
 import { sanitizeLeadData } from './utils/sanitize.js';
 import { logTelemetry } from './utils/telemetry.js';
-import { logToRecovery, workerDeleteRow } from './utils/workerSheets.js';
+import { logToRecovery } from './utils/telemetry.js';
 import { enrichRecord } from './utils/enrichmentLogic.js';
 
 /**
@@ -50,7 +50,21 @@ export default {
           return new Response('Missing recordId', { status: 400 });
         }
 
-        await workerDeleteRow(env, 'Recovery', recordId);
+
+        const coreRestUrl = env.AXIM_CORE_REST_URL || 'https://api.axim.us.com';
+        const deleteRes = await fetch(`${coreRestUrl}/rest/v1/dlq_records?id=eq.${recordId}`, {
+          method: 'DELETE',
+          headers: {
+            'apikey': env.AXIM_INTERNAL_KEY,
+            'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}`
+          }
+        });
+
+        if (!deleteRes.ok) {
+           console.error("Failed to dismiss DLQ alert in Supabase");
+           return new Response('Failed to dismiss DLQ alert', { status: 500 });
+        }
+
         return new Response(JSON.stringify({ success: true, message: 'Record dismissed' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' }
@@ -138,21 +152,12 @@ export default {
             // Not a JSON payload, proceed to sheet sync
         }
 
-        // If not a JSON update, assume standard worker sheets sync
+        // If not a JSON update, it's no longer supported due to zero-GCP mandate
         if (!hasJsonPayload) {
-            const { workerSheetsRequest } = await import('./utils/workerSheets.js');
-            const data = await workerSheetsRequest(env, '/values/Config!A:B');
-
-            if (data.values && env.CRM_BRIDGE_ROUTING_RULES) {
-            for (const row of data.values) {
-                const key = row[0];
-                const val = row[1];
-                if (key && val) {
-                await env.CRM_BRIDGE_ROUTING_RULES.put(`config:${key}`, val);
-                count++;
-                }
-            }
-            }
+            return new Response(JSON.stringify({ error: 'Config sync requires JSON payload (GCP deprecated)' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' }
+            });
         }
 
         return new Response(JSON.stringify({ status: 'Synced', count }), {
@@ -653,29 +658,11 @@ async function processAndDispatch(env, source, records, ctx) {
      // B. Multiplex Dispatch
 
      // Fetch URLs
-     let albatoWebhookUrl = env.ALBATO_WEBHOOK_URL || 'https://h.albato.com/wh/placeholder';
-     let coreRestUrl = env.AXIM_CORE_REST_URL || 'https://api.axim.us.com/v1/bulk/ingest';
-     if (env.CRM_BRIDGE_ROUTING_RULES) {
-       const kvUrl = await env.CRM_BRIDGE_ROUTING_RULES.get('config:egress_url');
-       if (kvUrl) {
-         try {
-           albatoWebhookUrl = JSON.parse(kvUrl);
-         } catch {
-           albatoWebhookUrl = kvUrl;
-         }
-       }
-       const coreUrl = await env.CRM_BRIDGE_ROUTING_RULES.get('config:core_rest_url');
-       if (coreUrl) {
-         try {
-           coreRestUrl = JSON.parse(coreUrl);
-         } catch {
-           coreRestUrl = coreUrl;
-         }
-       }
-     }
+     let coreRestUrl = env.AXIM_CORE_REST_URL || 'https://api.axim.us.com';
+     let coreEndpoint = `${coreRestUrl}/rest/v1/crm_contacts`;
 
-     // Align CRM Schema for Deskera
-     const mappedRecords = formatForDeskera(uniqueRecords);
+     // Align CRM Schema for Core
+     const mappedRecords = formatForCore(uniqueRecords);
 
      const validRecords = [];
      const invalidRecords = [];
@@ -716,139 +703,84 @@ async function processAndDispatch(env, source, records, ctx) {
          data: validRecords
      };
 
-     let albatoSuccess = false;
      let coreSuccess = false;
 
-     // 1. Dispatch to Albato (Sales CRM)
+     // 1. Exclusive Dispatch to AXiM Core (Supabase POST /rest/v1/crm_contacts)
      try {
-       const albatoRes = await fetch(albatoWebhookUrl, {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify(dispatchPayload)
-       });
+       const controller = new AbortController();
+       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-       if (!albatoRes.ok) {
-           ctx.waitUntil(logToRecovery(env, source, "Albato 500/Rejection", {
-             destination: 'Albato',
-             original: uniqueRecords,
-             mapped: dispatchPayload
-           }));
-           ctx.waitUntil(logTelemetry(env, {
-      telemetry_envelope: {
-        project_id: "AXIM_CRM_BRIDGE",
-        environment: env.ENVIRONMENT || "production",
-        timestamp: new Date().toISOString()
-      },
-      event_payload: {
-        event_type: "egress_fault_albato",
-        severity: "HIGH",
-        component_origin: "index.js",
-        error_message: `Albato rejection: ${albatoRes.status}`
-      }
-    }));
-       } else {
-           albatoSuccess = true;
-           ctx.waitUntil(logTelemetry(env, {
-      telemetry_envelope: {
-        project_id: "AXIM_CRM_BRIDGE",
-        environment: env.ENVIRONMENT || "production",
-        timestamp: new Date().toISOString()
-      },
-      event_payload: {
-        event_type: "sync_success_albato",
-        severity: "INFO",
-        component_origin: "index.js",
-        error_message: `Successfully synced ${uniqueRecords.length} records to Albato`
-      }
-    }));
-       }
-     } catch (e) {
-         ctx.waitUntil(logToRecovery(env, source, "Albato Network Error", {
-             destination: 'Albato',
-             original: uniqueRecords,
-             mapped: dispatchPayload
-         }));
-         ctx.waitUntil(logTelemetry(env, {
-      telemetry_envelope: {
-        project_id: "AXIM_CRM_BRIDGE",
-        environment: env.ENVIRONMENT || "production",
-        timestamp: new Date().toISOString()
-      },
-      event_payload: {
-        event_type: "egress_fault_albato",
-        severity: "HIGH",
-        component_origin: "index.js",
-        error_message: `Albato dispatch failed: ${e.message}`
-      }
-    }));
-     }
-
-     // 2. Dispatch to AXiM Core (Bulk Volume)
-     try {
-       const coreRes = await fetch(coreRestUrl, {
+       const coreRes = await fetch(coreEndpoint, {
            method: 'POST',
-           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}` },
-           body: JSON.stringify(dispatchPayload)
+           headers: {
+             'Content-Type': 'application/json',
+             'apikey': env.AXIM_INTERNAL_KEY,
+             'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}`,
+             'Prefer': 'resolution=merge-duplicates'
+           },
+           body: JSON.stringify(validRecords),
+           signal: controller.signal
        });
+       clearTimeout(timeoutId);
 
        if (!coreRes.ok) {
            ctx.waitUntil(logToRecovery(env, source, "Core 500/Rejection", {
              destination: 'Core',
              original: uniqueRecords,
-             mapped: dispatchPayload
+             mapped: validRecords
            }));
            ctx.waitUntil(logTelemetry(env, {
-      telemetry_envelope: {
-        project_id: "AXIM_CRM_BRIDGE",
-        environment: env.ENVIRONMENT || "production",
-        timestamp: new Date().toISOString()
-      },
-      event_payload: {
-        event_type: "egress_fault_core",
-        severity: "HIGH",
-        component_origin: "index.js",
-        error_message: `Core rejection: ${coreRes.status}`
-      }
-    }));
+             telemetry_envelope: {
+               project_id: "AXIM_CRM_BRIDGE",
+               environment: env.ENVIRONMENT || "production",
+               timestamp: new Date().toISOString()
+             },
+             event_payload: {
+               event_type: "egress_fault_core",
+               severity: "HIGH",
+               component_origin: "index.js",
+               error_message: `Core rejection: ${coreRes.status}`
+             }
+           }));
        } else {
            coreSuccess = true;
            ctx.waitUntil(logTelemetry(env, {
-      telemetry_envelope: {
-        project_id: "AXIM_CRM_BRIDGE",
-        environment: env.ENVIRONMENT || "production",
-        timestamp: new Date().toISOString()
-      },
-      event_payload: {
-        event_type: "sync_success_core",
-        severity: "INFO",
-        component_origin: "index.js",
-        error_message: `Successfully synced ${uniqueRecords.length} records to AXiM Core`
-      }
-    }));
+             telemetry_envelope: {
+               project_id: "AXIM_CRM_BRIDGE",
+               environment: env.ENVIRONMENT || "production",
+               timestamp: new Date().toISOString()
+             },
+             event_payload: {
+               event_type: "sync_success_core",
+               severity: "INFO",
+               component_origin: "index.js",
+               error_message: `Successfully synced ${validRecords.length} records to AXiM Core`
+             }
+           }));
        }
      } catch (e) {
          ctx.waitUntil(logToRecovery(env, source, "Core Network Error", {
              destination: 'Core',
              original: uniqueRecords,
-             mapped: dispatchPayload
+             mapped: validRecords
          }));
          ctx.waitUntil(logTelemetry(env, {
-      telemetry_envelope: {
-        project_id: "AXIM_CRM_BRIDGE",
-        environment: env.ENVIRONMENT || "production",
-        timestamp: new Date().toISOString()
-      },
-      event_payload: {
-        event_type: "egress_fault_core",
-        severity: "HIGH",
-        component_origin: "index.js",
-        error_message: `Core dispatch failed: ${e.message}`
-      }
-    }));
+           telemetry_envelope: {
+             project_id: "AXIM_CRM_BRIDGE",
+             environment: env.ENVIRONMENT || "production",
+             timestamp: new Date().toISOString()
+           },
+           event_payload: {
+             event_type: "egress_fault_core",
+             severity: "HIGH",
+             component_origin: "index.js",
+             error_message: `Core dispatch failed: ${e.message}`
+           }
+         }));
      }
 
-     // Only save to KV after 200 OK from either destination
-     if (env.CRM_BRIDGE_DEDUPE && (albatoSuccess || coreSuccess)) {
+     // Only save to KV after 200 OK from destination
+     if (env.CRM_BRIDGE_DEDUPE && coreSuccess) {
          for (const record of uniqueRecords) {
              if (record.email) {
                  const emailKey = record.email.toLowerCase().trim();
@@ -874,44 +806,28 @@ async function processAndDispatch(env, source, records, ctx) {
                  if (hashedKey) {
                      // waitUntil allows fire and forget for KV put
                      try {
-                     if (ctx && ctx.waitUntil) {
-                         ctx.waitUntil((async () => {
-                             try {
-                                 await env.CRM_BRIDGE_DEDUPE.put(`lead:${hashedKey}`, "true", { expirationTtl: 86400 });
-                             } catch (writeErr) {
-                                 ctx.waitUntil(logTelemetry(env, {
-      telemetry_envelope: {
-        project_id: "AXIM_CRM_BRIDGE",
-        environment: env.ENVIRONMENT || "production",
-        timestamp: new Date().toISOString()
-      },
-      event_payload: {
-        event_type: "kv_write_fault",
-        severity: "HIGH",
-        component_origin: "index.js",
-        error_message: `Failed to write deduplication lock for ${emailKey}: ${writeErr.message}`
-      }
-    }));
-                             }
-                         })());
-                     } else {
-                         try {
-                                 await env.CRM_BRIDGE_DEDUPE.put(`lead:${hashedKey}`, "true", { expirationTtl: 86400 });
-                             } catch (writeErr) {
-                                 ctx.waitUntil(logTelemetry(env, {
-      telemetry_envelope: {
-        project_id: "AXIM_CRM_BRIDGE",
-        environment: env.ENVIRONMENT || "production",
-        timestamp: new Date().toISOString()
-      },
-      event_payload: {
-        event_type: "kv_write_fault",
-        severity: "HIGH",
-        component_origin: "index.js",
-        error_message: `Failed to write deduplication lock for ${emailKey}: ${writeErr.message}`
-      }
-    }));
-                             }
+                         if (ctx && ctx.waitUntil) {
+                             ctx.waitUntil((async () => {
+                                 try {
+                                     await env.CRM_BRIDGE_DEDUPE.put(`lead:${hashedKey}`, "true", { expirationTtl: 86400 });
+                                 } catch (writeErr) {
+                                     ctx.waitUntil(logTelemetry(env, {
+                                          telemetry_envelope: {
+                                            project_id: "AXIM_CRM_BRIDGE",
+                                            environment: env.ENVIRONMENT || "production",
+                                            timestamp: new Date().toISOString()
+                                          },
+                                          event_payload: {
+                                            event_type: "kv_write_fault",
+                                            severity: "HIGH",
+                                            component_origin: "index.js",
+                                            error_message: `Failed to write deduplication lock for ${emailKey}: ${writeErr.message}`
+                                          }
+                                      }));
+                                 }
+                             })());
+                         } else {
+                             await env.CRM_BRIDGE_DEDUPE.put(`lead:${hashedKey}`, "true", { expirationTtl: 86400 });
                          }
                      } catch (outerErr) {
                          ctx.waitUntil(logTelemetry(env, {
