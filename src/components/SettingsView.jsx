@@ -1,8 +1,67 @@
-import React from 'react';
+import React, { useState } from 'react';
 import SafeIcon from '../common/SafeIcon';
-import { FiUser, FiKey, FiBell, FiZap, FiCheckCircle } from 'react-icons/fi';
+import { FiUser, FiBell, FiZap, FiCheckCircle, FiShield, FiTrash2, FiPlus, FiSave } from 'react-icons/fi';
 
 export default function SettingsView() {
+  const [ips, setIps] = useState([]);
+  const [newIp, setNewIp] = useState('');
+  const [ipError, setIpError] = useState('');
+  const [syncStatus, setSyncStatus] = useState('');
+
+  const validateIp = (ip) => {
+    // Basic IPv4 and IPv6 validation regex
+    const ipv4Regex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+    const ipv6Regex = /^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$/;
+    return ipv4Regex.test(ip) || ipv6Regex.test(ip);
+  };
+
+  const handleAddIp = () => {
+    if (!newIp) return;
+    if (validateIp(newIp)) {
+      if (!ips.includes(newIp)) {
+        setIps([...ips, newIp]);
+      }
+      setNewIp('');
+      setIpError('');
+    } else {
+      setIpError('Invalid IPv4 or IPv6 format');
+    }
+  };
+
+  const handleRemoveIp = (ipToRemove) => {
+    setIps(ips.filter(ip => ip !== ipToRemove));
+  };
+
+  const handleSyncIps = async () => {
+    setSyncStatus('Syncing...');
+    try {
+      // We assume there's a base URL or it's on the same origin. Since it's a UI, we'll hit the worker endpoint.
+      // If we don't have the exact host, we'll try an absolute or relative path based on Vite setup.
+      // Often VITE_API_URL or similar is used. We'll fallback to a generic fetch with the expected path.
+      // Based on project architecture, it's a Cloudflare worker. The worker handles `/v1/management/sync`.
+
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787';
+      const response = await fetch(`${baseUrl}/v1/management/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer axim_internal_dev_key_123' // Fallback for local testing, typically should come from auth context
+        },
+        body: JSON.stringify({ ip_whitelist: ips })
+      });
+
+      if (response.ok) {
+        setSyncStatus('Synced successfully!');
+        setTimeout(() => setSyncStatus(''), 3000);
+      } else {
+        setSyncStatus('Sync failed.');
+      }
+    } catch (e) {
+      console.error(e);
+      setSyncStatus('Sync error.');
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       <div className="lg:col-span-2 space-y-6">
@@ -34,6 +93,60 @@ export default function SettingsView() {
             ))}
             <button className="w-full py-3 border-2 border-dashed border-slate-800 rounded-xl text-slate-500 text-xs font-bold hover:border-blue-500 hover:text-blue-400 transition-all">
               + INVITE TEAM MEMBER
+            </button>
+          </div>
+        </div>
+
+        {/* IP Management Section */}
+        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
+          <h4 className="text-white font-bold mb-6 flex items-center gap-2">
+            <SafeIcon icon={FiShield} className="text-emerald-400" />
+            Allowed Ingress IPs
+          </h4>
+
+          <div className="flex items-center gap-4 mb-4">
+            <input
+              type="text"
+              placeholder="Enter IPv4 or IPv6 address..."
+              className="flex-1 bg-slate-950/50 border border-slate-800 text-white px-4 py-2 rounded-lg focus:outline-none focus:border-emerald-500 text-sm"
+              value={newIp}
+              onChange={(e) => setNewIp(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAddIp()}
+            />
+            <button
+              onClick={handleAddIp}
+              className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-500/20 transition-all text-sm font-bold"
+            >
+              <SafeIcon icon={FiPlus} /> Add IP
+            </button>
+          </div>
+          {ipError && <p className="text-red-400 text-xs mb-4">{ipError}</p>}
+
+          <div className="space-y-2 mb-6 max-h-48 overflow-y-auto pr-2">
+            {ips.length === 0 ? (
+              <p className="text-slate-500 text-sm italic">No IPs whitelisted. System will fail-open (all allowed).</p>
+            ) : (
+              ips.map(ip => (
+                <div key={ip} className="flex items-center justify-between p-3 bg-slate-950/50 border border-slate-800 rounded-lg">
+                  <span className="text-sm font-mono text-slate-300">{ip}</span>
+                  <button
+                    onClick={() => handleRemoveIp(ip)}
+                    className="text-slate-500 hover:text-red-400 transition-colors"
+                  >
+                    <SafeIcon icon={FiTrash2} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="flex items-center justify-between border-t border-slate-800 pt-4">
+            <span className="text-xs text-slate-400">{syncStatus}</span>
+            <button
+              onClick={handleSyncIps}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg flex items-center gap-2 transition-all text-sm font-bold shadow-lg shadow-blue-500/20"
+            >
+              <SafeIcon icon={FiSave} /> Save & Sync
             </button>
           </div>
         </div>
