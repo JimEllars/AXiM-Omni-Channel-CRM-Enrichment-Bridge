@@ -172,6 +172,72 @@ export default {
       }
     }
 
+
+    // GET route for Analytics Metrics
+    if (url.pathname === '/v1/management/analytics' && request.method === 'GET') {
+      try {
+        const authHeader = request.headers.get('Authorization');
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        if (authHeader !== `Bearer ${env.AXIM_INTERNAL_KEY}` && internalAuth !== env.AXIM_INTERNAL_KEY) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        let cognitiveRescues = 0;
+        if (env.CRM_BRIDGE_ROUTING_RULES) {
+          const val = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:ai_rescues:total');
+          cognitiveRescues = val ? parseInt(val, 10) : 0;
+        }
+
+        return new Response(JSON.stringify({ cognitive_rescues: cognitiveRescues }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // GET route for Diagnostics Export
+    if (url.pathname === '/v1/management/diagnostics' && request.method === 'GET') {
+      try {
+        const authHeader = request.headers.get('Authorization');
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        if (authHeader !== `Bearer ${env.AXIM_INTERNAL_KEY}` && internalAuth !== env.AXIM_INTERNAL_KEY) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        let cognitiveRescues = 0;
+        if (env.CRM_BRIDGE_ROUTING_RULES) {
+          const val = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:ai_rescues:total');
+          cognitiveRescues = val ? parseInt(val, 10) : 0;
+        }
+
+        // Mocking config values as requested in instructions
+        // In a real scenario, these would be fetched from KV or Supabase
+        const diagnostics = {
+          "config:automation_workflows": "v4.2.1-stable",
+          "config:ip_whitelist": ["192.168.1.1", "10.0.0.0/8", "172.16.0.0/12"],
+          "alert_count:critical": 0,
+          "analytics:ai_rescues:total": cognitiveRescues,
+          "system_status": "Operational",
+          "timestamp": new Date().toISOString()
+        };
+
+        return new Response(JSON.stringify(diagnostics), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     // DELETE route for DLQ dismissal
     if (url.pathname === '/v1/management/dlq-dismiss' && request.method === 'DELETE') {
       try {

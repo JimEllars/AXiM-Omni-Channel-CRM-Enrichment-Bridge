@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import SafeIcon from '../common/SafeIcon';
-import { FiServer, FiGlobe, FiCpu, FiHardDrive, FiCheckCircle, FiAlertCircle, FiRefreshCw } from 'react-icons/fi';
+import { FiServer, FiGlobe, FiCpu, FiHardDrive, FiCheckCircle, FiAlertCircle, FiRefreshCw, FiDownload } from 'react-icons/fi';
 import { motion } from 'framer-motion';
 import { configService } from '../services/configService';
 import { logService } from '../services/logService';
@@ -93,6 +93,33 @@ export default function SystemHealth() {
     await configService.set('system_health_regions', updated);
   };
 
+
+  const downloadDiagnostics = async () => {
+    try {
+      const response = await fetch('/v1/management/diagnostics', {
+        headers: {
+          'X-AXiM-Internal-Auth': import.meta.env.VITE_AXIM_INTERNAL_KEY || ''
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `axim_bridge_diagnostics_${new Date().getTime()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else {
+        console.error('Failed to fetch diagnostics');
+      }
+    } catch (e) {
+      console.error('Error fetching diagnostics:', e);
+    }
+  };
+
   const forceUnlock = async () => {
     try {
       const response = await fetch('/v1/management/unlock', {
@@ -165,8 +192,16 @@ export default function SystemHealth() {
             >
               <SafeIcon icon={FiRefreshCw} /> RE-BALANCE TRAFFIC
             </button>
+
+            <button
+              onClick={downloadDiagnostics}
+              className="px-4 py-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-300 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all border border-indigo-800"
+            >
+              <SafeIcon icon={FiDownload} /> SYSTEM DIAGNOSTICS
+            </button>
             <button
               onClick={forceUnlock}
+
               className="px-4 py-2 bg-red-900/50 hover:bg-red-800 text-red-300 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all border border-red-800"
             >
               FORCE UNLOCK
