@@ -68,7 +68,7 @@ export default function AutomationWorkflows() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_AXIM_INTERNAL_KEY || ''}`
+          'Authorization': `Bearer ${sessionStorage.getItem('AXIM_AUTH_KEY') || ''}`
         }
       }).catch(err => {
         // gracefully handle fetch errors
@@ -119,8 +119,8 @@ export default function AutomationWorkflows() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-AXiM-Internal-Auth': import.meta.env.VITE_AXIM_INTERNAL_KEY || '',
-          'Authorization': `Bearer ${import.meta.env.VITE_AXIM_INTERNAL_KEY || ''}`
+          'X-AXiM-Internal-Auth': sessionStorage.getItem('AXIM_AUTH_KEY') || '',
+          'Authorization': `Bearer ${sessionStorage.getItem('AXIM_AUTH_KEY') || ''}`
         }
       });
       if (response.ok) {

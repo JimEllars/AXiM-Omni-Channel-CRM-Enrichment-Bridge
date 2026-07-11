@@ -8,6 +8,8 @@ import { enrichRecord, callCognitiveProxy } from './utils/enrichmentLogic.js';
  * Cloudflare Worker Entry Point
  * Omni-Channel CRM Enrichment Bridge
  */
+const rateLimitMap = new Map();
+let rateLimitCleanupCounter = 0;
 let cachedWorkflows = null;
 let cachedIpWhitelist = null;
 let ipWhitelistCacheTime = 0;
@@ -477,6 +479,36 @@ export default {
     // INGRESS: Webhook Catcher Endpoint
     if (url.pathname === '/v1/webhooks/enrich' && request.method === 'POST') {
       try {
+
+        // Rate Limiting Logic
+        const clientIdentifier = request.headers.get('CF-Connecting-IP') || request.headers.get('X-AXiM-Client-Secret') || 'unknown';
+        const currentTime = Date.now();
+
+        let clientRequests = rateLimitMap.get(clientIdentifier) || [];
+        // Filter out requests older than 60 seconds
+        clientRequests = clientRequests.filter(timestamp => currentTime - timestamp < 60000);
+
+        if (clientRequests.length >= 100) {
+            return new Response('Too Many Requests', { status: 429 });
+        }
+
+        clientRequests.push(currentTime);
+        rateLimitMap.set(clientIdentifier, clientRequests);
+
+        // Opportunistic cleanup to prevent memory leaks (every ~100 requests)
+        rateLimitCleanupCounter++;
+        if (rateLimitCleanupCounter > 100) {
+            rateLimitCleanupCounter = 0;
+            for (const [key, timestamps] of rateLimitMap.entries()) {
+                const validTimestamps = timestamps.filter(timestamp => currentTime - timestamp < 60000);
+                if (validTimestamps.length === 0) {
+                    rateLimitMap.delete(key);
+                } else {
+                    rateLimitMap.set(key, validTimestamps);
+                }
+            }
+        }
+
 
         // IP Whitelisting Check
         const clientIpHeader = request.headers.get('CF-Connecting-IP');

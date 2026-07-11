@@ -25,7 +25,7 @@ export default function RecoveryCenter({ onRetrySuccess }) {
   const loadItems = async () => {
     setLoading(true);
     try {
-      const key = import.meta.env.VITE_AXIM_INTERNAL_KEY;
+      const key = sessionStorage.getItem('AXIM_AUTH_KEY');
       const res = await fetch(`/v1/management/dlq?limit=${limit}&offset=${offset}`, {
         headers: {
            'Authorization': `Bearer ${key}`
@@ -74,7 +74,7 @@ export default function RecoveryCenter({ onRetrySuccess }) {
     // Briefly show a loading/dismissing state?
     // We can just rely on the optimistic update which removes it immediately.
     try {
-      const key = import.meta.env.VITE_AXIM_INTERNAL_KEY;
+      const key = sessionStorage.getItem('AXIM_AUTH_KEY');
       const response = await fetch(`/v1/management/dlq-dismiss?recordId=${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: {
@@ -120,7 +120,7 @@ export default function RecoveryCenter({ onRetrySuccess }) {
   const handleRetry = async (item, isBulk = false) => {
     setRetryingId(item.id);
     try {
-      const key = import.meta.env.VITE_AXIM_INTERNAL_KEY;
+      const key = sessionStorage.getItem('AXIM_AUTH_KEY');
       const response = await fetch('/v1/management/dlq-retry', {
         method: 'POST',
         headers: {

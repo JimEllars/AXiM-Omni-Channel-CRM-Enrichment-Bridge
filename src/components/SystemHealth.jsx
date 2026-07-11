@@ -98,7 +98,7 @@ export default function SystemHealth() {
     try {
       const response = await fetch('/v1/management/diagnostics', {
         headers: {
-          'X-AXiM-Internal-Auth': import.meta.env.VITE_AXIM_INTERNAL_KEY || ''
+          'X-AXiM-Internal-Auth': sessionStorage.getItem('AXIM_AUTH_KEY') || ''
         }
       });
       if (response.ok) {
@@ -126,7 +126,7 @@ export default function SystemHealth() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-AXiM-Internal-Auth': import.meta.env.VITE_AXIM_INTERNAL_KEY || ''
+          'X-AXiM-Internal-Auth': sessionStorage.getItem('AXIM_AUTH_KEY') || ''
         }
       });
       if (response.ok) {

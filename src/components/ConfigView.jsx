@@ -30,7 +30,7 @@ export default function ConfigView() {
       const syncRes = await fetch('/v1/management/sync', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_AXIM_INTERNAL_KEY}`
+          'Authorization': `Bearer ${sessionStorage.getItem('AXIM_AUTH_KEY')}`
         }
       });
       if (!syncRes.ok) {
