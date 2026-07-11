@@ -185,12 +185,15 @@ export default {
         }
 
         let cognitiveRescues = 0;
+        let rateLimitDrops = 0;
         if (env.CRM_BRIDGE_ROUTING_RULES) {
           const val = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:ai_rescues:total');
+          const dropsVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:rate_limit_drops:total');
+          rateLimitDrops = dropsVal ? parseInt(dropsVal, 10) : 0;
           cognitiveRescues = val ? parseInt(val, 10) : 0;
         }
 
-        return new Response(JSON.stringify({ cognitive_rescues: cognitiveRescues }), {
+        return new Response(JSON.stringify({ cognitive_rescues: cognitiveRescues, rate_limit_drops: rateLimitDrops }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' }
         });
@@ -203,6 +206,31 @@ export default {
     }
 
     // GET route for Diagnostics Export
+    if (url.pathname === '/v1/management/analytics/reset' && request.method === 'POST') {
+      try {
+        const authHeader = request.headers.get('Authorization');
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        if (authHeader !== `Bearer ${env.AXIM_INTERNAL_KEY}` && internalAuth !== env.AXIM_INTERNAL_KEY) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        if (env.CRM_BRIDGE_ROUTING_RULES) {
+          await env.CRM_BRIDGE_ROUTING_RULES.put('analytics:ai_rescues:total', '0');
+          await env.CRM_BRIDGE_ROUTING_RULES.put('analytics:rate_limit_drops:total', '0');
+        }
+
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     if (url.pathname === '/v1/management/diagnostics' && request.method === 'GET') {
       try {
         const authHeader = request.headers.get('Authorization');
@@ -489,6 +517,18 @@ export default {
         clientRequests = clientRequests.filter(timestamp => currentTime - timestamp < 60000);
 
         if (clientRequests.length >= 100) {
+
+            if (env.CRM_BRIDGE_ROUTING_RULES) {
+                ctx.waitUntil((async () => {
+                    try {
+                        const current = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:rate_limit_drops:total');
+                        const count = (parseInt(current, 10) || 0) + 1;
+                        await env.CRM_BRIDGE_ROUTING_RULES.put('analytics:rate_limit_drops:total', count.toString());
+                    } catch (e) {
+                        // fail silently on analytics write error
+                    }
+                })());
+            }
             return new Response('Too Many Requests', { status: 429 });
         }
 
@@ -497,7 +537,7 @@ export default {
 
         // Opportunistic cleanup to prevent memory leaks (every ~100 requests)
         rateLimitCleanupCounter++;
-        if (rateLimitCleanupCounter > 100) {
+        if (rateLimitCleanupCounter >= 100) {
             rateLimitCleanupCounter = 0;
             for (const [key, timestamps] of rateLimitMap.entries()) {
                 const validTimestamps = timestamps.filter(timestamp => currentTime - timestamp < 60000);

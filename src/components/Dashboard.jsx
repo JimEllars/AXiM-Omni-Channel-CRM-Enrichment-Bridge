@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import SafeIcon from '../common/SafeIcon';
 import AnalyticsChart from './AnalyticsChart';
-import { FiUsers, FiFilter, FiZap, FiAlertTriangle, FiTrendingUp, FiActivity } from 'react-icons/fi';
+import { FiUsers, FiFilter, FiZap, FiAlertTriangle, FiTrendingUp, FiActivity, FiShieldOff } from 'react-icons/fi';
 import { FiCpu } from 'react-icons/fi';
 import { motion } from 'framer-motion';
 
 export default function Dashboard({ stats }) {
   const [aiRescues, setAiRescues] = useState(null);
+  const [rateLimitDrops, setRateLimitDrops] = useState(null);
   const [loadingRescues, setLoadingRescues] = useState(true);
 
   useEffect(() => {
@@ -20,8 +21,11 @@ export default function Dashboard({ stats }) {
         if (response.ok) {
           const data = await response.json();
           setAiRescues(data.cognitive_rescues);
+          setRateLimitDrops(data.rate_limit_drops);
         } else {
           setAiRescues(0);
+        setRateLimitDrops(0);
+          setRateLimitDrops(0);
         }
       } catch (err) {
         console.error('Failed to fetch analytics:', err);
@@ -39,11 +43,12 @@ export default function Dashboard({ stats }) {
     { title: 'Filtered/Dropped', value: stats.dropped, icon: FiAlertTriangle, color: 'text-amber-400', bg: 'bg-amber-400/10', trend: '-2%' },
     { title: 'Cognitive Rescues', value: loadingRescues ? '...' : (aiRescues || 0), icon: FiCpu, color: 'text-indigo-400', bg: 'bg-indigo-400/10', trend: '+NEW' },
     { title: 'Avg Latency', value: '42ms', icon: FiZap, color: 'text-purple-400', bg: 'bg-purple-400/10', trend: 'STABLE' },
+    { title: 'Blocked Volumetric Attacks', value: loadingRescues ? '...' : (rateLimitDrops || 0), icon: FiShieldOff, color: 'text-rose-400', bg: 'bg-rose-400/10', trend: 'LIVE' },
   ];
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         {cards.map((card, i) => (
           <motion.div 
             initial={{ opacity: 0, y: 20 }} 
