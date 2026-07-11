@@ -10,6 +10,7 @@ export default function SystemHealth() {
   const [loading, setLoading] = useState(true);
   const [healthStats, setHealthStats] = useState({ faults: 0, successes: 0, ratio: 0, status: 'Operational' });
   const [error, setError] = useState(null);
+  const [errorMsg, setErrorMsg] = useState(null);
 
   const defaultRegions = [
     { name: 'US-East (Virginia)', status: 'Optimal', latency: '12ms', load: '24%', icon: 'Globe' },
@@ -112,11 +113,15 @@ export default function SystemHealth() {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        setErrorMsg(null);
       } else {
         console.error('Failed to fetch diagnostics');
+        if (response.status === 401) setErrorMsg("Unauthorized: Invalid Session Key for diagnostics.");
+        else setErrorMsg("Failed to fetch diagnostics.");
       }
     } catch (e) {
       console.error('Error fetching diagnostics:', e);
+      setErrorMsg("Network error fetching diagnostics.");
     }
   };
 
@@ -132,11 +137,15 @@ export default function SystemHealth() {
       if (response.ok) {
         // toast or update state
         console.log('Force unlock successful');
+        setErrorMsg(null);
       } else {
         console.error('Force unlock failed');
+        if (response.status === 401) setErrorMsg("Unauthorized: Invalid Session Key for unlock.");
+        else setErrorMsg("Force unlock failed.");
       }
     } catch (e) {
       console.error(e);
+      setErrorMsg("Network error during unlock.");
     }
   };
 
@@ -161,6 +170,11 @@ export default function SystemHealth() {
 
   return (
     <div className="space-y-6">
+      {errorMsg && (
+        <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl flex items-center gap-3">
+          <span className="text-sm font-bold">{errorMsg}</span>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {metrics.map((m, i) => (
           <div key={i} className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl flex items-center gap-4 shadow-lg group hover:border-slate-700 transition-all">

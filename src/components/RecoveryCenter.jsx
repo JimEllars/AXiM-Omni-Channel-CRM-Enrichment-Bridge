@@ -17,6 +17,7 @@ export default function RecoveryCenter({ onRetrySuccess }) {
   const [offset, setOffset] = useState(0);
   const [limit, setLimit] = useState(50);
   const [hasMore, setHasMore] = useState(true);
+  const [errorMsg, setErrorMsg] = useState(null);
 
   useEffect(() => {
     loadItems();
@@ -41,11 +42,15 @@ export default function RecoveryCenter({ onRetrySuccess }) {
             created_at: item.created_at
          })));
          setHasMore(data.length === limit);
+         setErrorMsg(null);
       } else {
-         console.error("Failed to fetch DLQ");
+         if (res.status === 401) setErrorMsg("Unauthorized: Invalid Session Key.");
+         else if (res.status === 429) setErrorMsg("Too Many Requests: Rate limit exceeded. Try again later.");
+         else setErrorMsg(`Error ${res.status}: Failed to fetch DLQ.`);
       }
     } catch(e) {
       console.error(e);
+      setErrorMsg("Network error: Failed to connect to server.");
     } finally {
       setLoading(false);
     }

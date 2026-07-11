@@ -7,6 +7,7 @@ export default function SettingsView() {
   const [newIp, setNewIp] = useState('');
   const [ipError, setIpError] = useState('');
   const [syncStatus, setSyncStatus] = useState('');
+  const [errorMsg, setErrorMsg] = useState(null);
 
   const validateIp = (ip) => {
     // Basic IPv4 and IPv6 validation regex
@@ -45,7 +46,7 @@ export default function SettingsView() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer axim_internal_dev_key_123' // Fallback for local testing, typically should come from auth context
+          'Authorization': `Bearer ${sessionStorage.getItem('AXIM_AUTH_KEY') || ''}`
         },
         body: JSON.stringify({ ip_whitelist: ips })
       });
