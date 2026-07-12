@@ -1,4 +1,4 @@
-import { logTelemetry } from './telemetry.js';
+import { logTelemetry, logToRecovery } from './telemetry.js';
 
 /**
  * Asynchronous Enrichment Service Layer
@@ -279,47 +279,74 @@ export async function callCognitiveProxy(env, ctx, payload) {
   }
 }
 
-export async function processAgentBatch(env, ctx, payload) {
+async function processSingleAgentRecord(env, ctx, record) {
   const proxyUrl = env?.COGNITIVE_PROXY_URL || 'https://api.deepseek.com/v1/chat/completions';
   const apiKey = env?.DEEPSEEK_API_KEY || 'mock_key_for_sandbox';
 
-  try {
-    const response = await fetch(proxyUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an AI data extractor for an internal CRM. Filter, correct, and map the provided batch records into strict CRM schema objects based on the discussion context. Output a JSON object containing a "records" array.'
-          },
-          { role: 'user', content: JSON.stringify(payload) }
-        ],
-        response_format: { type: 'json_object' }
-      })
-    });
+  const response = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: 'deepseek-chat',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an AI data extractor for an internal CRM. Filter, correct, and map the provided record into a strict CRM schema object based on the discussion context. Output a JSON object containing a "record" object.'
+        },
+        { role: 'user', content: JSON.stringify(record) }
+      ],
+      response_format: { type: 'json_object' }
+    })
+  });
 
-    if (!response.ok) {
-      throw new Error(`Cognitive Proxy Error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    let extractedContent = data.choices[0].message.content;
-
-    try {
-      extractedContent = JSON.parse(extractedContent);
-      if (extractedContent && Array.isArray(extractedContent.records)) {
-        return extractedContent.records;
-      }
-      return [];
-    } catch(e) {
-      return [];
-    }
-  } catch (error) {
-    throw error;
+  if (!response.ok) {
+    throw new Error(`Cognitive Proxy Error: ${response.status}`);
   }
+
+  const data = await response.json();
+  let extractedContent = data.choices[0].message.content;
+
+  extractedContent = JSON.parse(extractedContent);
+  if (extractedContent && extractedContent.record) {
+    return extractedContent.record;
+  }
+  throw new Error("Invalid format returned by cognitive proxy");
+}
+
+export async function processAgentBatch(env, ctx, payload) {
+  if (!Array.isArray(payload)) {
+      return [];
+  }
+
+  const chunkSize = 10;
+  const processedRecords = [];
+
+  for (let i = 0; i < payload.length; i += chunkSize) {
+      const chunk = payload.slice(i, i + chunkSize);
+
+      const promises = chunk.map(record => processSingleAgentRecord(env, ctx, record));
+      const results = await Promise.allSettled(promises);
+
+      results.forEach((result, index) => {
+          const originalRecord = chunk[index];
+          if (result.status === 'fulfilled') {
+              processedRecords.push(result.value);
+          } else {
+              // Partial failure handling
+              if (env && ctx) {
+                  const errorReason = '[BATCH_PARTIAL_FAILURE]';
+                  const failedRecordPayload = {
+                      ...originalRecord,
+                      _extraction_error: result.reason.message
+                  };
+                  ctx.waitUntil(logToRecovery(env, 'onyx_desktop_agent', errorReason, failedRecordPayload));
+              }
+          }
+      });
+  }
+
+  return processedRecords;
 }
