@@ -220,7 +220,12 @@ export async function callCognitiveProxy(env, ctx, payload) {
       body: JSON.stringify({
         model: 'deepseek-chat', // Representing DeepSeek-V3
         messages: [
-          { role: 'system', content: 'You are an AI data extractor. Extract structured information from the provided payload.' },
+          {
+            role: 'system',
+            content: payload.discussion_context
+              ? `You are an expert CRM data extractor. Format the following payload into our strict JSON schema. The user who uploaded this batch provided the following context to guide your extraction: ${payload.discussion_context}`
+              : 'You are an AI data extractor. Extract structured information from the provided payload.'
+          },
           { role: 'user', content: JSON.stringify(payload) }
         ],
         response_format: { type: 'json_object' }
@@ -294,7 +299,9 @@ async function processSingleAgentRecord(env, ctx, record) {
       messages: [
         {
           role: 'system',
-          content: 'You are an AI data extractor for an internal CRM. Filter, correct, and map the provided record into a strict CRM schema object based on the discussion context. Output a JSON object containing a "record" object.'
+          content: record.discussion_context
+            ? `You are an expert CRM data extractor. Format the following payload into our strict JSON schema. The user who uploaded this batch provided the following context to guide your extraction: ${record.discussion_context}`
+            : 'You are an AI data extractor for an internal CRM. Filter, correct, and map the provided record into a strict CRM schema object based on the discussion context. Output a JSON object containing a "record" object.'
         },
         { role: 'user', content: JSON.stringify(record) }
       ],
@@ -325,10 +332,10 @@ export async function processAgentBatch(env, ctx, payload) {
   const processedRecords = [];
 
   for (let i = 0; i < payload.length; i += chunkSize) {
-      const chunk = payload.slice(i, i + chunkSize);
+      let chunk = payload.slice(i, i + chunkSize);
 
-      const promises = chunk.map(record => processSingleAgentRecord(env, ctx, record));
-      const results = await Promise.allSettled(promises);
+      let promises = chunk.map(record => processSingleAgentRecord(env, ctx, record));
+      let results = await Promise.allSettled(promises);
 
       results.forEach((result, index) => {
           const originalRecord = chunk[index];
@@ -346,6 +353,14 @@ export async function processAgentBatch(env, ctx, payload) {
               }
           }
       });
+
+      // Clean up local references strictly to assist V8 garbage collection
+      chunk.length = 0;
+      chunk = null;
+      promises.length = 0;
+      promises = null;
+      results.length = 0;
+      results = null;
   }
 
   return processedRecords;
