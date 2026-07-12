@@ -17,6 +17,16 @@ export default {
     const url = new URL(request.url);
 
     // Handle CORS preflight requests
+
+    // Phase 2: Edge Health Check
+    if (url.pathname === '/v1/health' && request.method === 'GET') {
+      return new Response(JSON.stringify({
+        status: "ok",
+        version: "v3-edge",
+        region: request.cf ? request.cf.colo : "local"
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
