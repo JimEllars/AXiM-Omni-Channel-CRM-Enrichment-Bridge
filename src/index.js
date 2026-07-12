@@ -2,7 +2,7 @@ import { formatForDeskera, formatForCore } from './utils/mapper.js';
 import { sanitizeLeadData } from './utils/sanitize.js';
 import { logTelemetry } from './utils/telemetry.js';
 import { logToRecovery } from './utils/telemetry.js';
-import { enrichRecord, callCognitiveProxy } from './utils/enrichmentLogic.js';
+import { enrichRecord, callCognitiveProxy, processAgentBatch } from './utils/enrichmentLogic.js';
 
 /**
  * Cloudflare Worker Entry Point
@@ -175,6 +175,60 @@ export default {
 
 
     // GET route for Analytics Metrics
+
+    // POST route for Onyx Agent Batch Ingress
+    if (url.pathname === '/v1/agent/batch-upload' && request.method === 'POST') {
+      try {
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        if (internalAuth !== env.AXIM_INTERNAL_KEY) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        const payload = await request.json();
+
+        ctx.waitUntil((async () => {
+          try {
+            // 1. Process batch using cognitive proxy
+            const processedRecords = await processAgentBatch(env, ctx, payload);
+
+            if (processedRecords && processedRecords.length > 0) {
+              // 2. Attribute tags
+              const taggedRecords = processedRecords.map(record => ({
+                ...record,
+                lead_source: 'onyx_desktop_agent',
+                metadata: {
+                  ...(record.metadata || {}),
+                  source: 'onyx_desktop_agent'
+                }
+              }));
+
+              // 3. Dispatch to CRM
+              await processAndDispatch(env, 'onyx_desktop_agent', taggedRecords, ctx);
+
+              // 4. Increment telemetry
+              if (env.CRM_BRIDGE_ROUTING_RULES) {
+                 const currentVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:agent_uploads:total');
+                 const newVal = (currentVal ? parseInt(currentVal, 10) : 0) + taggedRecords.length;
+                 await env.CRM_BRIDGE_ROUTING_RULES.put('analytics:agent_uploads:total', newVal.toString());
+              }
+            }
+          } catch (e) {
+            console.error('Agent batch processing failed in background:', e);
+          }
+        })());
+
+        return new Response(JSON.stringify({ success: true, message: 'Batch accepted for processing' }), {
+          status: 202,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     if (url.pathname === '/v1/management/analytics' && request.method === 'GET') {
       try {
         const authHeader = request.headers.get('Authorization');
@@ -192,7 +246,13 @@ export default {
           cognitiveRescues = val ? parseInt(val, 10) : 0;
         }
 
-        return new Response(JSON.stringify({ cognitive_rescues: cognitiveRescues, rate_limit_drops: rateLimitDrops }), {
+        let agentUploads = 0;
+        if (env.CRM_BRIDGE_ROUTING_RULES) {
+           const auVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:agent_uploads:total');
+           agentUploads = auVal ? parseInt(auVal, 10) : 0;
+        }
+
+        return new Response(JSON.stringify({ cognitive_rescues: cognitiveRescues, rate_limit_drops: rateLimitDrops, agent_uploads: agentUploads }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' }
         });

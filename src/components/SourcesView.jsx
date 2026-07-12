@@ -9,6 +9,7 @@ export default function SourcesView() {
   const [showAdd, setShowAdd] = useState(false);
   const [newSource, setNewSource] = useState({ name: '', type: 'Webhook' });
   const [loading, setLoading] = useState(true);
+  const [agentUploads, setAgentUploads] = useState(0);
 
   useEffect(() => {
     loadSources();
@@ -19,6 +20,19 @@ export default function SourcesView() {
     try {
       const data = await sourceService.getAll();
       setSources(data);
+      try {
+        const response = await fetch('/v1/management/analytics', {
+          headers: {
+            'X-AXiM-Internal-Auth': sessionStorage.getItem('AXIM_AUTH_KEY') || ''
+          }
+        });
+        if (response.ok) {
+          const analyticsData = await response.json();
+          setAgentUploads(analyticsData.agent_uploads || 0);
+        }
+      } catch (err) {
+        console.error('Failed to fetch analytics in SourcesView:', err);
+      }
     } finally {
       setLoading(false);
     }
@@ -61,6 +75,30 @@ export default function SourcesView() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-indigo-900/40 border border-indigo-500/30 p-6 rounded-2xl transition-all group relative overflow-hidden shadow-lg shadow-indigo-900/20"
+          >
+            <div className="flex justify-between items-start mb-6">
+              <div className="p-3 rounded-xl bg-indigo-950 border border-indigo-800 text-indigo-400 group-hover:scale-110 transition-transform shadow-inner shadow-indigo-500/10">
+                <SafeIcon icon={FiActivity} className="text-2xl" />
+              </div>
+            </div>
+
+            <h4 className="text-white font-bold text-lg">Onyx Desktop Agent</h4>
+            <p className="text-[10px] text-indigo-300 uppercase tracking-[0.2em] mb-6 font-black">AI BATCH INGESTION</p>
+
+            <div className="flex justify-between items-end border-t border-indigo-800/50 pt-4">
+              <div>
+                <p className="text-[10px] text-indigo-300 uppercase font-bold tracking-tighter">Total Ingested</p>
+                <p className="text-2xl font-black text-white">{agentUploads.toLocaleString()}</p>
+              </div>
+              <span className="px-2 py-1 rounded text-[9px] font-black border text-indigo-400 bg-indigo-400/10 border-indigo-400/20 uppercase">
+                Active / Secured
+              </span>
+            </div>
+          </motion.div>
           <AnimatePresence>
             {sources.map((source) => (
               <motion.div 
