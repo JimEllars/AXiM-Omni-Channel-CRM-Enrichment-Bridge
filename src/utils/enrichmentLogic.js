@@ -278,3 +278,48 @@ export async function callCognitiveProxy(env, ctx, payload) {
     throw error;
   }
 }
+
+export async function processAgentBatch(env, ctx, payload) {
+  const proxyUrl = env?.COGNITIVE_PROXY_URL || 'https://api.deepseek.com/v1/chat/completions';
+  const apiKey = env?.DEEPSEEK_API_KEY || 'mock_key_for_sandbox';
+
+  try {
+    const response = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an AI data extractor for an internal CRM. Filter, correct, and map the provided batch records into strict CRM schema objects based on the discussion context. Output a JSON object containing a "records" array.'
+          },
+          { role: 'user', content: JSON.stringify(payload) }
+        ],
+        response_format: { type: 'json_object' }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Cognitive Proxy Error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    let extractedContent = data.choices[0].message.content;
+
+    try {
+      extractedContent = JSON.parse(extractedContent);
+      if (extractedContent && Array.isArray(extractedContent.records)) {
+        return extractedContent.records;
+      }
+      return [];
+    } catch(e) {
+      return [];
+    }
+  } catch (error) {
+    throw error;
+  }
+}
