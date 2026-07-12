@@ -9,7 +9,6 @@ import { enrichRecord, callCognitiveProxy } from './utils/enrichmentLogic.js';
  * Omni-Channel CRM Enrichment Bridge
  */
 const rateLimitMap = new Map();
-let rateLimitCleanupCounter = 0;
 let cachedWorkflows = null;
 let cachedIpWhitelist = null;
 let ipWhitelistCacheTime = 0;
@@ -535,10 +534,9 @@ export default {
         clientRequests.push(currentTime);
         rateLimitMap.set(clientIdentifier, clientRequests);
 
-        // Opportunistic cleanup to prevent memory leaks (every ~100 requests)
-        rateLimitCleanupCounter++;
-        if (rateLimitCleanupCounter >= 100) {
-            rateLimitCleanupCounter = 0;
+        // Memory Safety (Garbage Collection)
+        // To prevent Map from exceeding Cloudflare's 128MB RAM limit over time
+        if (rateLimitMap.size > 1000) {
             for (const [key, timestamps] of rateLimitMap.entries()) {
                 const validTimestamps = timestamps.filter(timestamp => currentTime - timestamp < 60000);
                 if (validTimestamps.length === 0) {
@@ -546,6 +544,10 @@ export default {
                 } else {
                     rateLimitMap.set(key, validTimestamps);
                 }
+            }
+            // If still too large, aggressive wipe to protect memory
+            if (rateLimitMap.size > 1000) {
+                rateLimitMap.clear();
             }
         }
 

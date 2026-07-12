@@ -9,6 +9,7 @@ export default function Dashboard({ stats }) {
   const [aiRescues, setAiRescues] = useState(null);
   const [rateLimitDrops, setRateLimitDrops] = useState(null);
   const [loadingRescues, setLoadingRescues] = useState(true);
+  const [errorMsg, setErrorMsg] = useState(null);
 
   useEffect(() => {
     const fetchAnalytics = async () => {
@@ -22,14 +23,18 @@ export default function Dashboard({ stats }) {
           const data = await response.json();
           setAiRescues(data.cognitive_rescues);
           setRateLimitDrops(data.rate_limit_drops);
+          setErrorMsg(null);
         } else {
           setAiRescues(0);
-        setRateLimitDrops(0);
           setRateLimitDrops(0);
+          if (response.status === 401) setErrorMsg("Unauthorized: Invalid Session Key for analytics.");
+          else if (response.status === 429) setErrorMsg("Rate limited fetching analytics.");
         }
       } catch (err) {
         console.error('Failed to fetch analytics:', err);
         setAiRescues(0);
+        setRateLimitDrops(0);
+        setErrorMsg("Network error fetching analytics.");
       } finally {
         setLoadingRescues(false);
       }
@@ -48,6 +53,11 @@ export default function Dashboard({ stats }) {
 
   return (
     <div className="space-y-6">
+      {errorMsg && (
+        <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl flex items-center gap-3">
+          <span className="text-sm font-bold">{errorMsg}</span>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         {cards.map((card, i) => (
           <motion.div 

@@ -8,6 +8,7 @@ export default function AutomationWorkflows() {
   const [syncedId, setSyncedId] = useState(null);
   const [configVersion, setConfigVersion] = useState("1.0.0");
   const [configLastUpdated, setConfigLastUpdated] = useState("");
+  const [errorMsg, setErrorMsg] = useState(null);
   const [workflows, setWorkflows] = useState([
     {
       id: 'wf_1',
@@ -64,7 +65,7 @@ export default function AutomationWorkflows() {
       await configService.set('automation_workflows', payload);
 
       // 2. Fire authenticated POST request to Worker's sync endpoint
-      await fetch('/v1/management/sync', {
+      const syncResponse = await fetch('/v1/management/sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -73,7 +74,15 @@ export default function AutomationWorkflows() {
       }).catch(err => {
         // gracefully handle fetch errors
         console.error('Fetch to /v1/management/sync failed:', err);
+        setErrorMsg("Network error trying to sync.");
       });
+      if (syncResponse && !syncResponse.ok) {
+        if (syncResponse.status === 401) setErrorMsg("Unauthorized: Invalid Session Key for sync.");
+        else if (syncResponse.status === 429) setErrorMsg("Rate limited syncing workflows.");
+        else setErrorMsg(`Failed to sync: ${syncResponse.status}`);
+      } else if (syncResponse) {
+        setErrorMsg(null);
+      }
 
       if (savingId) {
         setSyncedId(savingId);
@@ -124,6 +133,7 @@ export default function AutomationWorkflows() {
         }
       });
       if (response.ok) {
+        setErrorMsg(null);
         // Refresh local state by fetching workflows again
         const savedWorkflows = await configService.get('automation_workflows', null);
         if (savedWorkflows && Array.isArray(savedWorkflows)) {
@@ -137,14 +147,22 @@ export default function AutomationWorkflows() {
         }
       } else {
         console.error('Rollback failed');
+        if (response.status === 401) setErrorMsg("Unauthorized: Invalid Session Key for rollback.");
+        else setErrorMsg("Rollback failed.");
       }
     } catch (e) {
       console.error('Rollback fetch failed', e);
+      setErrorMsg("Network error during rollback.");
     }
   };
 
   return (
     <div className="space-y-6">
+      {errorMsg && (
+        <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl flex items-center gap-3">
+          <span className="text-sm font-bold">{errorMsg}</span>
+        </div>
+      )}
       <div className="flex justify-between items-end mb-8">
         <div>
           <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-3 uppercase italic">
