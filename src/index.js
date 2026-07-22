@@ -196,6 +196,18 @@ export default {
 
         const payload = await request.json();
 
+        // Phase 1: Hard Payload Limits
+        const records = Array.isArray(payload) ? payload : (payload.records || []);
+        if (records.length > 1000) {
+          return new Response(JSON.stringify({
+            error: 'Payload Too Large',
+            message: 'Batch exceeds 1,000 records. Please chunk your batch to 1,000 records or fewer.'
+          }), {
+            status: 413,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
         ctx.waitUntil((async () => {
           try {
             // 1. Process batch using cognitive proxy
