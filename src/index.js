@@ -196,6 +196,41 @@ export default {
       }
     }
 
+    // POST route for Onyx Agent Key Management
+    if (url.pathname === '/v1/management/onyx-key' && request.method === 'POST') {
+      try {
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        if (internalAuth !== env.AXIM_INTERNAL_KEY) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        const payload = await request.json();
+        const { hashed_key } = payload;
+
+        if (!hashed_key) {
+           return new Response('Missing hashed_key', { status: 400 });
+        }
+
+        if (env.CRM_BRIDGE_ROUTING_RULES) {
+           const validKeysData = await env.CRM_BRIDGE_ROUTING_RULES.get('config:onyx_agent_keys', 'json') || [];
+           if (!validKeysData.includes(hashed_key)) {
+               validKeysData.push(hashed_key);
+               await env.CRM_BRIDGE_ROUTING_RULES.put('config:onyx_agent_keys', JSON.stringify(validKeysData));
+           }
+        }
+
+        return new Response(JSON.stringify({ success: true, message: 'Key provisioned successfully' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     // POST route for Cognitive Testing Sandbox
     if (url.pathname === '/v1/management/cognitive-test' && request.method === 'POST') {
       try {
@@ -226,8 +261,21 @@ export default {
     // POST route for Onyx Agent Batch Ingress
     if (url.pathname === '/v1/agent/batch-upload' && request.method === 'POST') {
       try {
-        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
-        if (internalAuth !== env.AXIM_INTERNAL_KEY) {
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader ? authHeader.replace('Bearer ', '').trim() : null;
+        let isAuthorized = false;
+
+        if (token) {
+           const hashedToken = await hashDedupeKey(token);
+           if (env.CRM_BRIDGE_ROUTING_RULES) {
+               const validKeysData = await env.CRM_BRIDGE_ROUTING_RULES.get('config:onyx_agent_keys', 'json') || [];
+               if (validKeysData.includes(hashedToken)) {
+                   isAuthorized = true;
+               }
+           }
+        }
+
+        if (!isAuthorized) {
           return new Response('Unauthorized', { status: 401 });
         }
 

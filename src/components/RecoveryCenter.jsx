@@ -1,3 +1,4 @@
+import { apiFetch } from "../utils/api";
 import React, { useState, useEffect } from 'react';
 import SafeIcon from '../common/SafeIcon';
 import { FiAlertCircle, FiRefreshCw, FiTrash2, FiEdit3, FiCheck, FiX } from 'react-icons/fi';
@@ -27,7 +28,7 @@ export default function RecoveryCenter({ onRetrySuccess }) {
     setLoading(true);
     try {
       const key = sessionStorage.getItem('AXIM_AUTH_KEY');
-      const res = await fetch(`/v1/management/dlq?limit=${limit}&offset=${offset}`, {
+      const res = await apiFetch(`/v1/management/dlq?limit=${limit}&offset=${offset}`, {
         headers: {
            'Authorization': `Bearer ${key}`
         }
@@ -80,7 +81,7 @@ export default function RecoveryCenter({ onRetrySuccess }) {
     // We can just rely on the optimistic update which removes it immediately.
     try {
       const key = sessionStorage.getItem('AXIM_AUTH_KEY');
-      const response = await fetch(`/v1/management/dlq-dismiss?recordId=${encodeURIComponent(id)}`, {
+      const response = await apiFetch(`/v1/management/dlq-dismiss?recordId=${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${key}`
@@ -126,7 +127,7 @@ export default function RecoveryCenter({ onRetrySuccess }) {
     setRetryingId(item.id);
     try {
       const key = sessionStorage.getItem('AXIM_AUTH_KEY');
-      const response = await fetch('/v1/management/dlq-retry', {
+      const response = await apiFetch('/v1/management/dlq-retry', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

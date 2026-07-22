@@ -1,3 +1,4 @@
+import { apiFetch } from "../utils/api";
 import React, { useState, useEffect } from 'react';
 import SafeIcon from '../common/SafeIcon';
 import { FiLock, FiExternalLink, FiTerminal, FiKey, FiSave, FiCheck, FiShield } from 'react-icons/fi';
@@ -27,7 +28,7 @@ export default function ConfigView() {
 
     // 2. Trigger KV Sync Endpoint
     try {
-      const syncRes = await fetch('/v1/management/sync', {
+      const syncRes = await apiFetch('/v1/management/sync', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${sessionStorage.getItem('AXIM_AUTH_KEY')}`
