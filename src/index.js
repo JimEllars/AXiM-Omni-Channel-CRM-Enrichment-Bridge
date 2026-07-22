@@ -12,8 +12,55 @@ const rateLimitMap = new Map();
 let cachedWorkflows = null;
 let cachedIpWhitelist = null;
 let ipWhitelistCacheTime = 0;
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-AXiM-Internal-Auth',
+  'Access-Control-Max-Age': '86400',
+};
+
 export default {
   async fetch(request, env, ctx) {
+    // Universal CORS Preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders
+      });
+    }
+
+    try {
+      let response = await this.handleRequest(request, env, ctx);
+
+      // If response is undefined for some reason, return 404
+      if (!response) {
+         response = new Response('Not Found', { status: 404 });
+      }
+
+      // Add CORS headers to the response
+      const newHeaders = new Headers(response.headers);
+      for (const [key, value] of Object.entries(corsHeaders)) {
+          newHeaders.set(key, value);
+      }
+
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: newHeaders
+      });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: 'Internal Server Error', details: error.message }), {
+        status: 500,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
+      });
+    }
+  },
+
+  async handleRequest(request, env, ctx) {
     const url = new URL(request.url);
 
     // Handle CORS preflight requests
@@ -27,17 +74,7 @@ export default {
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
 
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-AXiM-Internal-Auth',
-          'Access-Control-Max-Age': '86400',
-        },
-      });
-    }
+
 
 
 
@@ -730,7 +767,9 @@ export default {
     }
 
     return new Response('Endpoint Not Found', { status: 404 });
-  },
+
+  }
+,
 
   // SCHEDULED: Cron Trigger Handler for Database Sweeps
   async scheduled(event, env, ctx) {
