@@ -30,5 +30,67 @@ export const sourceService = {
 
   async delete(id) {
     return deleteRow(TAB, id);
+  },
+
+  async dispatchOutboundWebhook(env, ctx, targetUrl, payload, destinationName = 'Unknown') {
+    if (!ctx || !ctx.waitUntil) {
+      console.warn('dispatchOutboundWebhook called without valid ctx');
+    }
+
+    const dispatchPromise = (async () => {
+      try {
+        const response = await fetch(targetUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (response.status === 429 || response.status >= 500) {
+          throw new Error(`Outbound sync failed with status: ${response.status}`);
+        }
+
+        if (!response.ok) {
+           console.warn(`Outbound sync returned non-success status: ${response.status}`);
+        }
+      } catch (error) {
+        console.error(`Outbound dispatch failed to ${destinationName}:`, error.message);
+
+        const coreRestUrl = env.AXIM_CORE_REST_URL || 'https://api.axim.us.com';
+        const dlqEndpoint = `${coreRestUrl}/rest/v1/dlq_records`;
+
+        try {
+          const dlqPayload = {
+             source: 'outbound_dispatcher',
+             error_reason: '[OUTBOUND_SYNC_FAILED]',
+             payload: JSON.stringify({
+                original_payload: payload,
+                target_url: targetUrl,
+                destination: destinationName,
+                target_crm: destinationName
+             })
+          };
+
+          await fetch(dlqEndpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': env.AXIM_INTERNAL_KEY,
+              'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}`
+            },
+            body: JSON.stringify(dlqPayload)
+          });
+        } catch (dlqError) {
+           console.error("Failed to write to DLQ for outbound failure:", dlqError);
+        }
+      }
+    })();
+
+    if (ctx && ctx.waitUntil) {
+      ctx.waitUntil(dispatchPromise);
+    } else {
+      await dispatchPromise;
+    }
   }
 };

@@ -261,9 +261,15 @@ export default function RecoveryCenter({ onRetrySuccess }) {
                       <div className="text-[11px] text-slate-400 font-bold">{item.source}</div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-2 text-red-400 text-xs font-medium">
-                        <SafeIcon icon={FiAlertCircle} /> {item.reason}
-                      </div>
+                      {item.reason === '[OUTBOUND_SYNC_FAILED]' ? (
+                        <div className="flex items-center gap-2 text-orange-400 text-xs font-medium bg-orange-900/30 px-2 py-1 rounded-full border border-orange-800/50 w-fit">
+                          <SafeIcon icon={FiAlertCircle} /> Deskera Sync Failed
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-red-400 text-xs font-medium">
+                          <SafeIcon icon={FiAlertCircle} /> {item.reason}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       {(() => {
