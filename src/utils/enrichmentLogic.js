@@ -239,6 +239,10 @@ export async function callCognitiveProxy(env, ctx, payload) {
                     const currentVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:ai_rescues:total');
                     const newVal = (currentVal ? parseInt(currentVal, 10) : 0) + 1;
                     await env.CRM_BRIDGE_ROUTING_RULES.put('analytics:ai_rescues:total', newVal.toString());
+
+                    const edgeSuccess = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:edge_ai:success_count');
+                    const newEdgeSuccess = (edgeSuccess ? parseInt(edgeSuccess, 10) : 0) + 1;
+                    await env.CRM_BRIDGE_ROUTING_RULES.put('analytics:edge_ai:success_count', newEdgeSuccess.toString());
                 } catch (e) {
                     console.error('Failed to increment ai_rescues counter:', e);
                 }
@@ -250,6 +254,23 @@ export async function callCognitiveProxy(env, ctx, payload) {
     } catch (cfAiError) {
       console.warn('[WORKERS_AI_FALLBACK] Edge AI extraction failed. Falling back to HTTP proxy:', cfAiError.message);
     }
+  }
+
+  // Increment fallback counter and enforce strict mode if enabled
+  if (env && env.CRM_BRIDGE_ROUTING_RULES && ctx && ctx.waitUntil) {
+      ctx.waitUntil((async () => {
+          try {
+              const edgeFallback = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:edge_ai:fallback_count');
+              const newEdgeFallback = (edgeFallback ? parseInt(edgeFallback, 10) : 0) + 1;
+              await env.CRM_BRIDGE_ROUTING_RULES.put('analytics:edge_ai:fallback_count', newEdgeFallback.toString());
+          } catch (e) {
+              console.error('Failed to increment fallback counter:', e);
+          }
+      })());
+  }
+
+  if (payload.strict_local_ai) {
+      throw new Error("[EDGE_AI_UNAVAILABLE_STRICT_MODE]");
   }
 
   // Use a hardcoded mock URL or actual if available
@@ -331,56 +352,38 @@ export async function callCognitiveProxy(env, ctx, payload) {
 }
 
 async function processSingleAgentRecord(env, ctx, record) {
-  const proxyUrl = env?.COGNITIVE_PROXY_URL || 'https://api.deepseek.com/v1/chat/completions';
-  const apiKey = env?.DEEPSEEK_API_KEY || 'mock_key_for_sandbox';
-
-  const response = await fetch(proxyUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: 'deepseek-chat',
-      messages: [
-        {
-          role: 'system',
-          content: record.discussion_context
-            ? `You are an expert CRM data extractor. Format the following payload into our strict JSON schema. The user who uploaded this batch provided the following context to guide your extraction: ${record.discussion_context}`
-            : 'You are an AI data extractor for an internal CRM. Filter, correct, and map the provided record into a strict CRM schema object based on the discussion context. Output a JSON object containing a "record" object.'
-        },
-        { role: 'user', content: JSON.stringify(record) }
-      ],
-      response_format: { type: 'json_object' }
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Cognitive Proxy Error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  let extractedContent = data.choices[0].message.content;
-
-  extractedContent = JSON.parse(extractedContent);
+  const extractedContent = await callCognitiveProxy(env, ctx, record);
   if (extractedContent && extractedContent.record) {
     return extractedContent.record;
+  } else if (extractedContent) {
+    // If there is no nested "record" object but top-level fields are returned
+    return extractedContent;
   }
   throw new Error("Invalid format returned by cognitive proxy");
 }
 
 export async function processAgentBatch(env, ctx, payload) {
-  if (!Array.isArray(payload)) {
+  let records = [];
+  let strict_local_ai = false;
+  if (Array.isArray(payload)) {
+      records = payload;
+  } else if (payload && Array.isArray(payload.records)) {
+      records = payload.records;
+      strict_local_ai = !!payload.strict_local_ai;
+  } else {
       return [];
   }
 
   const chunkSize = 10;
   const processedRecords = [];
 
-  for (let i = 0; i < payload.length; i += chunkSize) {
-      let chunk = payload.slice(i, i + chunkSize);
+  for (let i = 0; i < records.length; i += chunkSize) {
+      let chunk = records.slice(i, i + chunkSize);
 
-      let promises = chunk.map(record => processSingleAgentRecord(env, ctx, record));
+      let promises = chunk.map(record => {
+          const augmentedRecord = { ...record, strict_local_ai };
+          return processSingleAgentRecord(env, ctx, augmentedRecord);
+      });
       let results = await Promise.allSettled(promises);
 
       results.forEach((result, index) => {
@@ -390,7 +393,10 @@ export async function processAgentBatch(env, ctx, payload) {
           } else {
               // Partial failure handling
               if (env && ctx) {
-                  const errorReason = '[BATCH_PARTIAL_FAILURE]';
+                  let errorReason = '[BATCH_PARTIAL_FAILURE]';
+                  if (result.reason.message.includes('[EDGE_AI_UNAVAILABLE_STRICT_MODE]')) {
+                      errorReason = '[EDGE_AI_UNAVAILABLE_STRICT_MODE]';
+                  }
                   const failedRecordPayload = {
                       ...originalRecord,
                       _extraction_error: result.reason.message
