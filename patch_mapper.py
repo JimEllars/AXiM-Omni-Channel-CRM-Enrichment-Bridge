@@ -1,36 +1,27 @@
-/**
- * Maps standard lead records to Deskera CRM compatible format.
- */
-export function formatForDeskera(records) {
+with open('src/utils/mapper.js', 'r') as f:
+    content = f.read()
+
+old_func = """export function formatForCore(records) {
   return records.map(record => {
-    // Basic mapping, adjusting keys to match target schema
     const mapped = {
-      first_name: record.firstName || record.first_name || '',
-      last_name: record.lastName || record.last_name || '',
-      email: record.email || '',
-      phone: record.phone || '',
-      // Nesting company data
-      company: {
-        name: record.company || record.organization_name || '',
-        size: record.company_size || '',
-        linkedin: record.linkedin_url || ''
-      },
-      source: record.source || 'api_ingress',
-      _enrichment_status: record._enrichment_failed ? 'failed' : 'success'
+      id: record.id || '',
+      firstName: record.firstName || record.first_name || '',
+      lastName: record.lastName || record.last_name || '',
+      emailAddress: record.email || '',
+      phoneNumber: record.phone || '',
+      organization: record.company || record.organization_name || '',
+      source_system: record.source || 'api_ingress',
+      enrichment_flag: record._enrichment_failed ? false : true
     };
-
-
-    // Pre-Flight Validation Check
-    if (!mapped.email || mapped.email.trim() === '') {
+    if (!mapped.emailAddress || mapped.emailAddress.trim() === '') {
       mapped._is_invalid = true;
-      mapped._validation_reason = 'Critically missing CRM-required field: email';
+      mapped._validation_reason = 'Critically missing Core-required field: emailAddress';
     }
-
     return mapped;
-
   });
-}
-export function formatForCore(records) {
+}"""
+
+new_func = """export function formatForCore(records) {
   return records.map(record => {
     const mapped = {
       id: record.id || '',
@@ -67,4 +58,12 @@ export function formatForCore(records) {
     }
     return mapped;
   });
-}
+}"""
+
+if old_func in content:
+    content = content.replace(old_func, new_func)
+    with open('src/utils/mapper.js', 'w') as f:
+        f.write(content)
+    print("Replaced old function.")
+else:
+    print("Could not find old function precisely.")

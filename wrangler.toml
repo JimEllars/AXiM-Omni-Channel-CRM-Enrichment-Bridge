@@ -16,3 +16,6 @@ id = "<PLACEHOLDER_ROUTING_RULES_ID>"
 
 [triggers]
 crons = ["0 2 * * *"]
+
+[ai]
+binding = "AI"
