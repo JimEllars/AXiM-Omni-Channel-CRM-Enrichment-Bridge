@@ -296,7 +296,7 @@ export default {
         ctx.waitUntil((async () => {
           try {
             // 1. Process batch using cognitive proxy
-            const processedRecords = await processAgentBatch(env, ctx, payload);
+            const processedRecords = await processAgentBatch(env, ctx, { records, strict_local_ai: payload.strict_local_ai });
 
             if (processedRecords && processedRecords.length > 0) {
               // 2. Attribute tags
@@ -346,11 +346,17 @@ export default {
 
         let cognitiveRescues = 0;
         let rateLimitDrops = 0;
+        let edgeAiSuccess = 0;
+        let edgeAiFallback = 0;
         if (env.CRM_BRIDGE_ROUTING_RULES) {
           const val = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:ai_rescues:total');
           const dropsVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:rate_limit_drops:total');
+          const edgeSuccessVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:edge_ai:success_count');
+          const edgeFallbackVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:edge_ai:fallback_count');
           rateLimitDrops = dropsVal ? parseInt(dropsVal, 10) : 0;
           cognitiveRescues = val ? parseInt(val, 10) : 0;
+          edgeAiSuccess = edgeSuccessVal ? parseInt(edgeSuccessVal, 10) : 0;
+          edgeAiFallback = edgeFallbackVal ? parseInt(edgeFallbackVal, 10) : 0;
         }
 
         let agentUploads = 0;
@@ -359,8 +365,7 @@ export default {
            agentUploads = auVal ? parseInt(auVal, 10) : 0;
         }
 
-        return new Response(JSON.stringify({ cognitive_rescues: cognitiveRescues, rate_limit_drops: rateLimitDrops, agent_uploads: agentUploads }), {
-          status: 200,
+        return new Response(JSON.stringify({ cognitive_rescues: cognitiveRescues, rate_limit_drops: rateLimitDrops, agent_uploads: agentUploads, edge_ai_success: edgeAiSuccess, edge_ai_fallback: edgeAiFallback }), {          status: 200,
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (error) {

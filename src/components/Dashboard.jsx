@@ -9,6 +9,8 @@ import { motion } from 'framer-motion';
 export default function Dashboard({ stats }) {
   const [aiRescues, setAiRescues] = useState(null);
   const [rateLimitDrops, setRateLimitDrops] = useState(null);
+  const [edgeAiSuccess, setEdgeAiSuccess] = useState(0);
+  const [edgeAiFallback, setEdgeAiFallback] = useState(0);
   const [loadingRescues, setLoadingRescues] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
 
@@ -24,6 +26,8 @@ export default function Dashboard({ stats }) {
           const data = await response.json();
           setAiRescues(data.cognitive_rescues);
           setRateLimitDrops(data.rate_limit_drops);
+          setEdgeAiSuccess(data.edge_ai_success || 0);
+          setEdgeAiFallback(data.edge_ai_fallback || 0);
           setErrorMsg(null);
         } else {
           setAiRescues(0);
@@ -47,7 +51,18 @@ export default function Dashboard({ stats }) {
     { title: 'Total Ingress', value: stats.total, icon: FiUsers, color: 'text-blue-400', bg: 'bg-blue-400/10', trend: '+12%' },
     { title: 'Cleansed & Routed', value: stats.passed, icon: FiFilter, color: 'text-emerald-400', bg: 'bg-emerald-400/10', trend: '+18%' },
     { title: 'Filtered/Dropped', value: stats.dropped, icon: FiAlertTriangle, color: 'text-amber-400', bg: 'bg-amber-400/10', trend: '-2%' },
-    { title: 'Cognitive Rescues', value: loadingRescues ? '...' : (aiRescues || 0), icon: FiCpu, color: 'text-indigo-400', bg: 'bg-indigo-400/10', trend: '+NEW' },
+    {
+      title: 'Cognitive Rescues',
+      value: loadingRescues ? '...' : (aiRescues || 0),
+      icon: FiCpu,
+      color: 'text-indigo-400',
+      bg: 'bg-indigo-400/10',
+      trend: '+NEW',
+      split: {
+        local: loadingRescues ? 0 : edgeAiSuccess,
+        external: loadingRescues ? 0 : edgeAiFallback
+      }
+    },
     { title: 'Avg Latency', value: '42ms', icon: FiZap, color: 'text-purple-400', bg: 'bg-purple-400/10', trend: 'STABLE' },
     { title: 'Blocked Volumetric Attacks', value: loadingRescues ? '...' : (rateLimitDrops || 0), icon: FiShieldOff, color: 'text-rose-400', bg: 'bg-rose-400/10', trend: 'LIVE' },
   ];
@@ -77,7 +92,13 @@ export default function Dashboard({ stats }) {
               </span>
             </div>
             <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1">{card.title}</p>
-            <h4 className="text-3xl font-black text-white italic tracking-tighter">{card.value.toLocaleString()}</h4>
+            <h4 className="text-3xl font-black text-white italic tracking-tighter">{typeof card.value === 'number' ? card.value.toLocaleString() : card.value}</h4>
+            {card.split && (
+              <div className="mt-2 flex gap-2 text-[9px] font-bold tracking-widest text-slate-400">
+                <span className="bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20">LOCAL: {card.split.local}</span>
+                <span className="bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">EXT: {card.split.external}</span>
+              </div>
+            )}
           </motion.div>
         ))}
       </div>
