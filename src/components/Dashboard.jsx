@@ -1,3 +1,4 @@
+import { apiFetch } from "../utils/api";
 import React, { useState, useEffect } from 'react';
 import SafeIcon from '../common/SafeIcon';
 import AnalyticsChart from './AnalyticsChart';
@@ -14,7 +15,7 @@ export default function Dashboard({ stats }) {
   useEffect(() => {
     const fetchAnalytics = async () => {
       try {
-        const response = await fetch('/v1/management/analytics', {
+        const response = await apiFetch('/v1/management/analytics', {
           headers: {
             'X-AXiM-Internal-Auth': sessionStorage.getItem('AXIM_AUTH_KEY') || ''
           }

@@ -1,3 +1,4 @@
+import { apiFetch } from "../utils/api";
 import React, { useState, useEffect } from 'react';
 import SafeIcon from '../common/SafeIcon';
 import { FiActivity, FiShield, FiDatabase } from 'react-icons/fi';
@@ -16,7 +17,7 @@ export default function Header() {
         // The worker is likely deployed at an endpoint we need to hit, let's use the current window location or a generic one? Wait, the prompt says hit `/v1/health`. If it's a relative path on the same domain or maybe we can just hit `/v1/health`.
 
         // Let's use `/v1/health` as a relative path if they are on the same domain, or from config. We will just fetch `/v1/health`.
-        const res = await fetch('/v1/health');
+        const res = await apiFetch('/v1/health');
         if (!res.ok) throw new Error('Not OK');
         const data = await res.json();
 

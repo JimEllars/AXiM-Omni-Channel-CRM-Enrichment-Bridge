@@ -1,3 +1,4 @@
+import { apiFetch } from "../utils/api";
 import React, { useState, useEffect } from 'react';
 import SafeIcon from '../common/SafeIcon';
 import { FiServer, FiGlobe, FiCpu, FiHardDrive, FiCheckCircle, FiAlertCircle, FiRefreshCw, FiDownload } from 'react-icons/fi';
@@ -97,7 +98,7 @@ export default function SystemHealth() {
 
   const downloadDiagnostics = async () => {
     try {
-      const response = await fetch('/v1/management/diagnostics', {
+      const response = await apiFetch('/v1/management/diagnostics', {
         headers: {
           'X-AXiM-Internal-Auth': sessionStorage.getItem('AXIM_AUTH_KEY') || ''
         }
@@ -127,7 +128,7 @@ export default function SystemHealth() {
 
   const forceUnlock = async () => {
     try {
-      const response = await fetch('/v1/management/unlock', {
+      const response = await apiFetch('/v1/management/unlock', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

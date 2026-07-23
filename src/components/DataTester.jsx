@@ -1,3 +1,4 @@
+import { apiFetch } from "../utils/api";
 /* Full File Update to support dynamic rules passed from App state */
 import React, { useState } from 'react';
 import { sanitizeLeadData } from '../utils/sanitize';
@@ -41,7 +42,7 @@ export default function DataTester({ onPipelineRun, activeRules }) {
 
       if (useCognitive) {
         const key = sessionStorage.getItem('AXIM_AUTH_KEY');
-        const res = await fetch('/v1/management/cognitive-test', {
+        const res = await apiFetch('/v1/management/cognitive-test', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

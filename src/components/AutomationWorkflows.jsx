@@ -1,3 +1,4 @@
+import { apiFetch } from "../utils/api";
 import React, { useState, useEffect } from 'react';
 import SafeIcon from '../common/SafeIcon';
 import { FiGitCommit, FiPlus, FiTrash2, FiPlay, FiSettings, FiZap, FiLoader, FiCheck } from 'react-icons/fi';
@@ -65,7 +66,7 @@ export default function AutomationWorkflows() {
       await configService.set('automation_workflows', payload);
 
       // 2. Fire authenticated POST request to Worker's sync endpoint
-      const syncResponse = await fetch('/v1/management/sync', {
+      const syncResponse = await apiFetch('/v1/management/sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -124,7 +125,7 @@ export default function AutomationWorkflows() {
   };
   const revertToPrevious = async () => {
     try {
-      const response = await fetch('/v1/management/rollback', {
+      const response = await apiFetch('/v1/management/rollback', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -1,3 +1,4 @@
+import { apiFetch } from "../utils/api";
 import React, { useState, useRef } from 'react';
 import Papa from 'papaparse';
 import SafeIcon from '../common/SafeIcon';
@@ -160,7 +161,7 @@ export default function DataImporter() {
       const batch = mappedData.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
 
       try {
-        await fetch('/v1/webhooks/enrich', {
+        await apiFetch('/v1/webhooks/enrich', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

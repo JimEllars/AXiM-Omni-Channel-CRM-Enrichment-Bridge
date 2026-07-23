@@ -1,3 +1,4 @@
+import { apiFetch } from "../utils/api";
 import React, { useState, useEffect } from 'react';
 import SafeIcon from '../common/SafeIcon';
 import { FiGlobe, FiLinkedin, FiMail, FiPlus, FiTrash2, FiActivity } from 'react-icons/fi';
@@ -21,7 +22,7 @@ export default function SourcesView() {
       const data = await sourceService.getAll();
       setSources(data);
       try {
-        const response = await fetch('/v1/management/analytics', {
+        const response = await apiFetch('/v1/management/analytics', {
           headers: {
             'X-AXiM-Internal-Auth': sessionStorage.getItem('AXIM_AUTH_KEY') || ''
           }

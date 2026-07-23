@@ -1,6 +1,7 @@
+import { apiFetch } from "../utils/api";
 import React, { useState } from 'react';
 import SafeIcon from '../common/SafeIcon';
-import { FiUser, FiBell, FiZap, FiCheckCircle, FiShield, FiTrash2, FiPlus, FiSave } from 'react-icons/fi';
+import { FiUser, FiBell, FiZap, FiCheckCircle, FiShield, FiTrash2, FiPlus, FiSave, FiKey } from 'react-icons/fi';
 
 export default function SettingsView() {
   const [ips, setIps] = useState([]);
@@ -8,6 +9,45 @@ export default function SettingsView() {
   const [ipError, setIpError] = useState('');
   const [syncStatus, setSyncStatus] = useState('');
   const [errorMsg, setErrorMsg] = useState(null);
+
+  const [newAgentKey, setNewAgentKey] = useState('');
+  const [keyStatus, setKeyStatus] = useState('');
+
+  const generateAndProvisionKey = async () => {
+    setKeyStatus('Generating...');
+    try {
+      // Generate a random 32-character hex key
+      const array = new Uint8Array(16);
+      window.crypto.getRandomValues(array);
+      const key = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+
+      // Hash it on the frontend before sending (SHA-256)
+      const encoder = new TextEncoder();
+      const data = encoder.encode(key);
+      const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashedKey = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+      const response = await apiFetch('/v1/management/onyx-key', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionStorage.getItem('AXIM_AUTH_KEY') || ''}`
+        },
+        body: JSON.stringify({ hashed_key: hashedKey })
+      });
+
+      if (response.ok) {
+        setNewAgentKey(key);
+        setKeyStatus('Key provisioned successfully! Copy it now, it will not be shown again.');
+      } else {
+        setKeyStatus('Failed to provision key.');
+      }
+    } catch (e) {
+      console.error(e);
+      setKeyStatus('Error provisioning key.');
+    }
+  };
 
   const validateIp = (ip) => {
     // Basic IPv4 and IPv6 validation regex
@@ -42,7 +82,7 @@ export default function SettingsView() {
       // Based on project architecture, it's a Cloudflare worker. The worker handles `/v1/management/sync`.
 
       const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787';
-      const response = await fetch(`${baseUrl}/v1/management/sync`, {
+      const response = await apiFetch(`/v1/management/sync`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -95,6 +135,32 @@ export default function SettingsView() {
             <button className="w-full py-3 border-2 border-dashed border-slate-800 rounded-xl text-slate-500 text-xs font-bold hover:border-blue-500 hover:text-blue-400 transition-all">
               + INVITE TEAM MEMBER
             </button>
+          </div>
+        </div>
+
+        {/* Onyx Agent Connections Section */}
+        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
+          <h4 className="text-white font-bold mb-6 flex items-center gap-2">
+            <SafeIcon icon={FiKey} className="text-purple-400" />
+            Onyx Agent Connections
+          </h4>
+          <p className="text-slate-400 text-sm mb-4">
+            Generate revocable API keys for Onyx Desktop Agents. These keys only grant access to the batch upload ingress route and cannot access management features.
+          </p>
+          <div className="flex flex-col gap-4">
+            <button
+              onClick={generateAndProvisionKey}
+              className="w-full bg-purple-600 hover:bg-purple-500 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 transition-all text-sm font-bold shadow-lg shadow-purple-500/20"
+            >
+              <SafeIcon icon={FiPlus} /> Generate & Provision New Key
+            </button>
+            {keyStatus && <p className="text-sm text-slate-300 mt-2">{keyStatus}</p>}
+            {newAgentKey && (
+              <div className="bg-slate-950/80 border border-purple-500/30 p-4 rounded-lg mt-2 relative">
+                <p className="text-xs text-purple-400 font-bold mb-1 uppercase tracking-widest">Secret Agent Key (Show Once)</p>
+                <code className="text-white text-lg font-mono break-all">{newAgentKey}</code>
+              </div>
+            )}
           </div>
         </div>
 
