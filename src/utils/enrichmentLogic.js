@@ -206,6 +206,52 @@ export async function enrichRecord(env, ctx, record) {
 }
 
 export async function callCognitiveProxy(env, ctx, payload) {
+  if (env && env.AI) {
+    try {
+      const systemPrompt = payload.discussion_context
+        ? `You are an expert CRM data extractor. Format the input payload into strict JSON with fields: firstName, lastName, company, email, phone, notes. Context: ${payload.discussion_context}`
+        : 'You are an AI data extractor for an internal CRM. Filter, correct, and map the provided record into a strict CRM JSON schema.';
+
+      const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: JSON.stringify(payload) }
+        ],
+        response_format: { type: 'json_object' }
+      });
+
+      if (aiResponse && aiResponse.response) {
+        let parsed = typeof aiResponse.response === 'string'
+          ? JSON.parse(aiResponse.response)
+          : aiResponse.response;
+
+        parsed.metadata = {
+          ...(parsed.metadata || {}),
+          ai_enriched: true,
+          provider: 'cloudflare_workers_ai',
+          enriched_at: new Date().toISOString()
+        };
+
+        // Increment KV counter for analytics
+        if (env && env.CRM_BRIDGE_ROUTING_RULES && ctx && ctx.waitUntil) {
+            ctx.waitUntil((async () => {
+                try {
+                    const currentVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:ai_rescues:total');
+                    const newVal = (currentVal ? parseInt(currentVal, 10) : 0) + 1;
+                    await env.CRM_BRIDGE_ROUTING_RULES.put('analytics:ai_rescues:total', newVal.toString());
+                } catch (e) {
+                    console.error('Failed to increment ai_rescues counter:', e);
+                }
+            })());
+        }
+
+        return parsed;
+      }
+    } catch (cfAiError) {
+      console.warn('[WORKERS_AI_FALLBACK] Edge AI extraction failed. Falling back to HTTP proxy:', cfAiError.message);
+    }
+  }
+
   // Use a hardcoded mock URL or actual if available
   const proxyUrl = env?.COGNITIVE_PROXY_URL || 'https://api.deepseek.com/v1/chat/completions';
   const apiKey = env?.DEEPSEEK_API_KEY || 'mock_key_for_sandbox';
