@@ -19,3 +19,8 @@ crons = ["0 2 * * *"]
 
 [ai]
 binding = "AI"
+
+[vars]
+AXIM_CLIENT_SECRET = ""
+AXIM_CLIENT_SECRET_FALLBACK = ""
+ENRICHMENT_API_KEY = ""
