@@ -826,6 +826,65 @@ export default {
 
   // SCHEDULED: Cron Trigger Handler for Database Sweeps
   async scheduled(event, env, ctx) {
+
+    const coreRestUrl = env.AXIM_CORE_REST_URL || 'https://api.axim.us.com';
+    const dlqEndpoint = `${coreRestUrl}/rest/v1/dlq_records`;
+
+    const sweepPromise = (async () => {
+      try {
+        const fetchUrl = `${dlqEndpoint}?error_reason=eq.[OUTBOUND_SYNC_FAILED]`;
+        const res = await fetch(fetchUrl, {
+          method: 'GET',
+          headers: {
+            'apikey': env.AXIM_INTERNAL_KEY,
+            'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!res.ok) {
+          throw new Error(`Failed to fetch DLQ records: ${res.status}`);
+        }
+
+        const records = await res.json();
+
+        if (records && records.length > 0) {
+          const { sourceService } = await import('./services/sourceService.js');
+          await sourceService.replayFailedOutbound(env, records);
+        }
+
+        const checkRes = await fetch(`${dlqEndpoint}?select=id`, {
+           method: 'GET',
+           headers: {
+             'apikey': env.AXIM_INTERNAL_KEY,
+             'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}`
+           }
+        });
+
+        if (checkRes.ok) {
+           const allRecords = await checkRes.json();
+           if (allRecords.length > 50) {
+              if (env.ALERT_WEBHOOK_URL) {
+                 await fetch(env.ALERT_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                       text: "⚠️ AXiM Bridge Alert: DLQ threshold exceeded. >50 records pending manual review. Third-party CRM may be experiencing an outage."
+                    })
+                 });
+              }
+           }
+        }
+      } catch (error) {
+        console.error("Scheduled task failed:", error.message);
+      }
+    })();
+
+    if (ctx && ctx.waitUntil) {
+      ctx.waitUntil(sweepPromise);
+    } else {
+      await sweepPromise;
+    }
     try {
       ctx.waitUntil(logTelemetry(env, {
       telemetry_envelope: {
