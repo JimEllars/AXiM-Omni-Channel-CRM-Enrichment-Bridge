@@ -301,12 +301,23 @@ export default {
             const validRecords = mappedRecords.filter(r => !r._is_invalid);
 
             if (validRecords.length > 0 && env.CRM_BRIDGE_DEDUPE) {
+               let ttl = 86400 * 7; // Default 7 days
+               if (env.CRM_BRIDGE_ROUTING_RULES) {
+                   try {
+                       const savedTtl = await env.CRM_BRIDGE_ROUTING_RULES.get('config:ecosystem_ttl');
+                       if (savedTtl) {
+                           ttl = parseInt(savedTtl, 10);
+                       }
+                   } catch (e) {
+                       console.error('Failed to get ecosystem_ttl', e);
+                   }
+               }
                const uuid = crypto.randomUUID();
                await env.CRM_BRIDGE_DEDUPE.put(`ecosystem_data:${uuid}`, JSON.stringify({
                    timestamp: new Date().toISOString(),
                    records: validRecords,
                    source: payload.source || 'universal_ingress'
-               }), { expirationTtl: 86400 * 7 }); // Store for 7 days
+               }), { expirationTtl: ttl });
 
                // Optionally update a recent list key for easy fetching
                const recentKey = 'ecosystem_data:recent_keys';
@@ -355,27 +366,41 @@ export default {
            return new Response(JSON.stringify({ error: 'KV Store not bound' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
         }
 
-        const recentKey = 'ecosystem_data:recent_keys';
-        const recentKeysStr = await env.CRM_BRIDGE_DEDUPE.get(recentKey);
-        const recentKeys = recentKeysStr ? JSON.parse(recentKeysStr) : [];
+        const urlObj = new URL(request.url);
+        let limitParam = parseInt(urlObj.searchParams.get('limit'), 10);
+        let limit = isNaN(limitParam) ? 50 : Math.min(limitParam, 500); // hard cap at 500
+        let cursor = urlObj.searchParams.get('cursor');
 
         let allRecords = [];
 
-        // Fetch up to 10 recent batches
-        const keysToFetch = recentKeys.slice(0, 10);
-        for (const key of keysToFetch) {
-            const dataStr = await env.CRM_BRIDGE_DEDUPE.get(key);
+        const listOptions = { prefix: 'ecosystem_data:', limit };
+        if (cursor) {
+            listOptions.cursor = cursor;
+        }
+
+        const listed = await env.CRM_BRIDGE_DEDUPE.list(listOptions);
+
+        for (const keyObj of listed.keys) {
+            // Ignore the recent_keys list
+            if (keyObj.name === 'ecosystem_data:recent_keys') continue;
+
+            const dataStr = await env.CRM_BRIDGE_DEDUPE.get(keyObj.name);
             if (dataStr) {
                 try {
                     const data = JSON.parse(dataStr);
                     if (data.records && Array.isArray(data.records)) {
                         allRecords.push(...data.records);
                     }
-                } catch(e) { console.warn("Failed to parse data"); }
+                } catch(e) { console.warn("Failed to parse data for key:", keyObj.name); }
             }
         }
 
-        return new Response(JSON.stringify({ success: true, data: allRecords }), {
+        const responsePayload = { success: true, data: allRecords };
+        if (!listed.list_complete) {
+            responsePayload.next_cursor = listed.cursor;
+        }
+
+        return new Response(JSON.stringify(responsePayload), {
           status: 200,
           headers: { 'Content-Type': 'application/json' }
         });
@@ -691,6 +716,11 @@ export default {
             }
             if (payload && payload.alert_webhook !== undefined && env.CRM_BRIDGE_ROUTING_RULES) {
                 await env.CRM_BRIDGE_ROUTING_RULES.put('config:alert_webhook', payload.alert_webhook);
+                count++;
+                hasJsonPayload = true;
+            }
+            if (payload && payload.ecosystem_ttl !== undefined && env.CRM_BRIDGE_ROUTING_RULES) {
+                await env.CRM_BRIDGE_ROUTING_RULES.put('config:ecosystem_ttl', payload.ecosystem_ttl.toString());
                 count++;
                 hasJsonPayload = true;
             }
