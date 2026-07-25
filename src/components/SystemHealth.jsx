@@ -10,6 +10,7 @@ export default function SystemHealth() {
   const [regions, setRegions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [healthStats, setHealthStats] = useState({ faults: 0, successes: 0, ratio: 0, status: 'Operational' });
+  const [analyticsData, setAnalyticsData] = useState(null);
   const [error, setError] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
 
@@ -41,6 +42,21 @@ export default function SystemHealth() {
 
   const fetchLogStats = async () => {
     try {
+      // Fetch telemetry
+      try {
+        const analyticsRes = await apiFetch('/v1/management/analytics', {
+          headers: {
+            'X-AXiM-Internal-Auth': sessionStorage.getItem('AXIM_AUTH_KEY') || ''
+          }
+        });
+        if (analyticsRes.ok) {
+          const data = await analyticsRes.json();
+          setAnalyticsData(data);
+        }
+      } catch (e) {
+        console.error('Failed to fetch analytics telemetry:', e);
+      }
+
       const logs = await logService.getAll();
 
       // Filter for last 24 hours
@@ -176,6 +192,27 @@ export default function SystemHealth() {
           <span className="text-sm font-bold">{errorMsg}</span>
         </div>
       )}
+      {analyticsData && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
+            <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">AI Success</p>
+            <p className="text-2xl font-black text-emerald-400">{analyticsData.edgeAiSuccess || 0}</p>
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
+            <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">AI Fallback</p>
+            <p className="text-2xl font-black text-amber-400">{analyticsData.edgeAiFallback || 0}</p>
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
+            <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Auto Recovery</p>
+            <p className="text-2xl font-black text-blue-400">{analyticsData.automatedSuccess || 0}</p>
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
+            <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Outbound Failed</p>
+            <p className="text-2xl font-black text-red-400">{analyticsData.cognitiveRescues || 0}</p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {metrics.map((m, i) => (
           <div key={i} className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl flex items-center gap-4 shadow-lg group hover:border-slate-700 transition-all">
