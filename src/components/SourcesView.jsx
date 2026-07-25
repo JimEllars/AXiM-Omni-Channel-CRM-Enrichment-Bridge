@@ -70,6 +70,31 @@ export default function SourcesView() {
         </button>
       </div>
 
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mt-8 shadow-xl">
+          <div className="flex justify-between items-center mb-4">
+              <div>
+                  <h4 className="text-white font-bold text-lg">Ecosystem & Scraper Ingress</h4>
+                  <p className="text-xs text-slate-400 mt-1">Universal generic endpoints for B2B/B2C scraper apps and AXiM ecosystem micro-apps.</p>
+              </div>
+              <button
+                  onClick={() => alert("Scraper API Key Generated: ax_u_key_12345 (Simulation)")}
+                  className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-lg shadow-purple-600/20"
+              >
+                  GENERATE UNIVERSAL KEY
+              </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                 <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black mb-2">Ingestion Endpoint</p>
+                 <code className="text-emerald-400 text-xs">POST /v1/ecosystem/ingest</code>
+             </div>
+             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                 <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black mb-2">Fetch Data Endpoint</p>
+                 <code className="text-blue-400 text-xs">GET /v1/ecosystem/data</code>
+             </div>
+          </div>
+      </div>
+
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 opacity-30">
           {[1,2,3].map(i => <div key={i} className="h-48 bg-slate-900 border border-slate-800 rounded-2xl animate-pulse" />)}
