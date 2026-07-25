@@ -68,3 +68,26 @@ export function formatForCore(records) {
     return mapped;
   });
 }
+
+export function formatForUniversal(records) {
+  return records.map(record => {
+    const mapped = {
+      profile_id: record.id || record.profile_id || '',
+      first_name: record.firstName || record.first_name || '',
+      last_name: record.lastName || record.last_name || '',
+      email: record.email || record.emailAddress || '',
+      phone: record.phone || record.phoneNumber || '',
+      organization: record.company || record.organization_name || record.organization || '',
+      ecosystem_source: record.source || record.ecosystem_source || 'universal_ingress',
+      raw_data: record._raw_data || record,
+      _enrichment_status: record._enrichment_failed ? 'failed' : 'success'
+    };
+
+    if (!mapped.email || mapped.email.trim() === '') {
+      mapped._is_invalid = true;
+      mapped._validation_reason = 'Critically missing Universal Profile required field: email';
+    }
+
+    return mapped;
+  });
+}

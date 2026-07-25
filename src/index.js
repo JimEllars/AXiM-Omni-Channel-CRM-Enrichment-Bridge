@@ -1,4 +1,4 @@
-import { formatForDeskera, formatForCore } from './utils/mapper.js';
+import { formatForDeskera, formatForCore, formatForUniversal } from './utils/mapper.js';
 import { sanitizeLeadData } from './utils/sanitize.js';
 import { logTelemetry } from './utils/telemetry.js';
 import { logToRecovery } from './utils/telemetry.js';
@@ -257,6 +257,135 @@ export default {
 
 
     // GET route for Analytics Metrics
+
+    // POST route for Ecosystem / Scraper Ingest
+    if (url.pathname === '/v1/ecosystem/ingest' && request.method === 'POST') {
+      try {
+        const authHeader = request.headers.get('Authorization');
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        const clientSecret = request.headers.get('X-AXiM-Client-Secret');
+
+        let isAuthorized = false;
+        if (authHeader === `Bearer ${env.AXIM_INTERNAL_KEY}` || internalAuth === env.AXIM_INTERNAL_KEY) {
+           isAuthorized = true;
+        } else if (clientSecret && env.AXIM_CLIENT_SECRET && clientSecret === env.AXIM_CLIENT_SECRET) {
+           isAuthorized = true;
+        }
+
+        if (!isAuthorized) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        const payload = await request.json();
+
+        ctx.waitUntil((async () => {
+          try {
+            // Process payload with cognitive proxy
+            let dataToProcess = payload;
+            if (!Array.isArray(payload) && !payload.records) {
+              dataToProcess = [payload];
+            } else if (payload.records) {
+              dataToProcess = payload.records;
+            }
+
+            const processedRecords = [];
+            for (const record of dataToProcess) {
+               // Use cognitive proxy to clean the data
+               const cleanData = await callCognitiveProxy(env, ctx, { ...record, strict_local_ai: false });
+               const recordData = cleanData.record ? cleanData.record : cleanData;
+               processedRecords.push(recordData);
+            }
+
+            // Map to generic Universal format
+            const mappedRecords = formatForUniversal(processedRecords);
+            const validRecords = mappedRecords.filter(r => !r._is_invalid);
+
+            if (validRecords.length > 0 && env.CRM_BRIDGE_DEDUPE) {
+               const uuid = crypto.randomUUID();
+               await env.CRM_BRIDGE_DEDUPE.put(`ecosystem_data:${uuid}`, JSON.stringify({
+                   timestamp: new Date().toISOString(),
+                   records: validRecords,
+                   source: payload.source || 'universal_ingress'
+               }), { expirationTtl: 86400 * 7 }); // Store for 7 days
+
+               // Optionally update a recent list key for easy fetching
+               const recentKey = 'ecosystem_data:recent_keys';
+               const recentKeysStr = await env.CRM_BRIDGE_DEDUPE.get(recentKey);
+               let recentKeys = recentKeysStr ? JSON.parse(recentKeysStr) : [];
+               recentKeys.unshift(`ecosystem_data:${uuid}`);
+               recentKeys = recentKeys.slice(0, 100); // Keep last 100
+               await env.CRM_BRIDGE_DEDUPE.put(recentKey, JSON.stringify(recentKeys));
+            }
+          } catch (e) {
+            console.error('Ecosystem ingest processing failed in background:', e);
+          }
+        })());
+
+        return new Response(JSON.stringify({ success: true, message: 'Payload accepted for ecosystem processing' }), {
+          status: 202,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // GET route for Ecosystem / Scraper Data Fetch
+    if (url.pathname === '/v1/ecosystem/data' && request.method === 'GET') {
+      try {
+        const authHeader = request.headers.get('Authorization');
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        const clientSecret = request.headers.get('X-AXiM-Client-Secret');
+
+        let isAuthorized = false;
+        if (authHeader === `Bearer ${env.AXIM_INTERNAL_KEY}` || internalAuth === env.AXIM_INTERNAL_KEY) {
+           isAuthorized = true;
+        } else if (clientSecret && env.AXIM_CLIENT_SECRET && clientSecret === env.AXIM_CLIENT_SECRET) {
+           isAuthorized = true;
+        }
+
+        if (!isAuthorized) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        if (!env.CRM_BRIDGE_DEDUPE) {
+           return new Response(JSON.stringify({ error: 'KV Store not bound' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const recentKey = 'ecosystem_data:recent_keys';
+        const recentKeysStr = await env.CRM_BRIDGE_DEDUPE.get(recentKey);
+        const recentKeys = recentKeysStr ? JSON.parse(recentKeysStr) : [];
+
+        let allRecords = [];
+
+        // Fetch up to 10 recent batches
+        const keysToFetch = recentKeys.slice(0, 10);
+        for (const key of keysToFetch) {
+            const dataStr = await env.CRM_BRIDGE_DEDUPE.get(key);
+            if (dataStr) {
+                try {
+                    const data = JSON.parse(dataStr);
+                    if (data.records && Array.isArray(data.records)) {
+                        allRecords.push(...data.records);
+                    }
+                } catch(e) { console.warn("Failed to parse data"); }
+            }
+        }
+
+        return new Response(JSON.stringify({ success: true, data: allRecords }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+         return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
 
     // POST route for Onyx Agent Batch Ingress
     if (url.pathname === '/v1/agent/batch-upload' && request.method === 'POST') {
