@@ -169,21 +169,21 @@ export default function RecoveryCenter({ onRetrySuccess }) {
       <div className="flex justify-between items-center">
         <div>
           <h3 className="text-white font-bold text-xl tracking-tight">Dead Letter Queue</h3>
-          <p className="text-slate-500 text-xs mt-1">Manual intervention required.</p>
+          <p className="dark:text-gray-500 text-gray-500 text-xs mt-1">Manual intervention required.</p>
         </div>
         <div className="flex items-center gap-2">
             <button
               onClick={() => setOffset(Math.max(0, offset - limit))}
               disabled={offset === 0}
-              className="px-3 py-1 bg-slate-800 text-slate-300 rounded text-xs disabled:opacity-50"
+              className="px-3 py-1 dark:bg-gray-700 bg-gray-100 dark:text-gray-300 text-gray-800 rounded text-xs disabled:opacity-50"
             >
               Previous
             </button>
-            <span className="text-slate-400 text-xs">Page {Math.floor(offset / limit) + 1}</span>
+            <span className="dark:text-gray-400 text-gray-600 text-xs">Page {Math.floor(offset / limit) + 1}</span>
             <button
               onClick={() => setOffset(offset + limit)}
               disabled={!hasMore}
-              className="px-3 py-1 bg-slate-800 text-slate-300 rounded text-xs disabled:opacity-50"
+              className="px-3 py-1 dark:bg-gray-700 bg-gray-100 dark:text-gray-300 text-gray-800 rounded text-xs disabled:opacity-50"
             >
               Next
             </button>
@@ -191,14 +191,14 @@ export default function RecoveryCenter({ onRetrySuccess }) {
         {selectedIds.length > 0 && (
           <div className="flex items-center gap-4">
             {isBulkRetrying && (
-              <span className="text-slate-400 text-xs font-mono">
+              <span className="dark:text-gray-400 text-gray-600 text-xs font-mono">
                 Retrying {bulkProgress.current} of {bulkProgress.total}...
               </span>
             )}
             <button
               onClick={handleBulkRetry}
               disabled={isBulkRetrying}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-blue-600 dark:bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-2"
             >
               <SafeIcon icon={FiRefreshCw} className={isBulkRetrying ? "animate-spin" : ""} />
               {isBulkRetrying ? "PROCESSING..." : `RETRY SELECTED (${selectedIds.length})`}
@@ -207,9 +207,9 @@ export default function RecoveryCenter({ onRetrySuccess }) {
         )}
       </div>
 
-      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl overflow-x-auto">
+      <div className="dark:bg-gray-800 bg-white/50 border dark:border-gray-700 border-gray-200 rounded-2xl overflow-hidden shadow-2xl overflow-x-auto">
         <table className="w-full text-left">
-          <thead className="sticky top-0 z-10 bg-slate-900 text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-800">
+          <thead className="sticky top-0 z-10 dark:bg-gray-800 bg-white dark:text-gray-500 text-gray-500 text-[10px] uppercase font-black tracking-widest border-b dark:border-gray-700 border-gray-200">
             <tr>
               <th className="px-6 py-4 w-12">
                 <input
@@ -217,7 +217,7 @@ export default function RecoveryCenter({ onRetrySuccess }) {
                   checked={selectedIds.length === items.length && items.length > 0}
                   onChange={handleSelectAll}
                   disabled={items.length === 0 || isBulkRetrying}
-                  className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-blue-500"
+                  className="rounded dark:border-gray-600 border-gray-300 dark:bg-gray-700 bg-gray-100 text-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
               </th>
               <th className="px-6 py-4">Origin</th>
@@ -245,7 +245,7 @@ export default function RecoveryCenter({ onRetrySuccess }) {
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0, x: 20 }}
                     key={item.id} 
-                    className={`hover:bg-slate-800/20 group transition-colors ${selectedIds.includes(item.id) ? 'bg-slate-800/40' : ''}`}
+                    className={`hover:dark:bg-gray-700 bg-gray-100/20 group transition-colors ${selectedIds.includes(item.id) ? 'dark:bg-gray-700 bg-gray-100/40' : ''}`}
                   >
                     <td className="px-6 py-4">
                       <input
@@ -253,12 +253,12 @@ export default function RecoveryCenter({ onRetrySuccess }) {
                         checked={selectedIds.includes(item.id)}
                         onChange={() => handleSelect(item.id)}
                         disabled={isBulkRetrying}
-                        className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-blue-500"
+                        className="rounded dark:border-gray-600 border-gray-300 dark:bg-gray-700 bg-gray-100 text-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                       />
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-blue-400 font-mono text-[10px]">{item.id}</div>
-                      <div className="text-[11px] text-slate-400 font-bold">{item.source}</div>
+                      <div className="text-[11px] dark:text-gray-400 text-gray-600 font-bold">{item.source}</div>
                     </td>
                     <td className="px-6 py-4">
                       {item.reason === '[OUTBOUND_SYNC_FAILED]' ? (
@@ -282,7 +282,7 @@ export default function RecoveryCenter({ onRetrySuccess }) {
                         }
                         if (dest === 'Albato') return <span className="px-2 py-0.5 rounded text-[10px] font-bold border bg-blue-900 text-blue-300 border-blue-700">Sales CRM</span>;
                         if (dest === 'Core') return <span className="px-2 py-0.5 rounded text-[10px] font-bold border bg-purple-900 text-purple-300 border-purple-700">AXiM Core</span>;
-                        return <span className="px-2 py-0.5 rounded text-[10px] font-bold border bg-slate-800 text-slate-300 border-slate-700">{dest}</span>;
+                        return <span className="px-2 py-0.5 rounded text-[10px] font-bold border dark:bg-gray-700 bg-gray-100 dark:text-gray-300 text-gray-800 dark:border-gray-600 border-gray-300">{dest}</span>;
                       })()}
                     </td>
                     <td className="px-6 py-4">
@@ -297,7 +297,7 @@ export default function RecoveryCenter({ onRetrySuccess }) {
                           }
                         } catch(e) { /* ignore */ }
                         return (
-                          <code className="text-[10px] text-slate-500 truncate max-w-[200px] block">
+                          <code className="text-[10px] dark:text-gray-500 text-gray-500 truncate max-w-[200px] block">
                             {item.payload}
                           </code>
                         );
@@ -320,14 +320,14 @@ export default function RecoveryCenter({ onRetrySuccess }) {
                             <button
                               onClick={() => { setEditingItem(item); setEditPayload(item.payload); }}
                               disabled={isSystemAlert}
-                              className={`p-2 bg-slate-800 rounded-lg transition-colors ${isSystemAlert ? 'text-slate-600 opacity-50 cursor-not-allowed' : 'hover:bg-blue-600/20 text-slate-400 hover:text-blue-400'}`}
+                              className={`p-2 dark:bg-gray-700 bg-gray-100 rounded-lg transition-colors ${isSystemAlert ? 'text-slate-600 opacity-50 cursor-not-allowed' : 'hover:bg-blue-600 dark:bg-blue-600/20 dark:text-gray-400 text-gray-600 hover:text-blue-400'}`}
                             >
                               <SafeIcon icon={FiEdit3} />
                             </button>
                             {isSystemAlert ? (
                               <button
                                 onClick={() => handleDismiss(item.id)}
-                                className="p-2 bg-slate-800 hover:bg-orange-600/20 text-orange-400 rounded-lg transition-colors flex items-center gap-1"
+                                className="p-2 dark:bg-gray-700 bg-gray-100 hover:bg-orange-600/20 text-orange-400 rounded-lg transition-colors flex items-center gap-1"
                                 title="Dismiss Alert"
                               >
                                 <span className="text-[10px] font-bold">DISMISS</span>
@@ -336,14 +336,14 @@ export default function RecoveryCenter({ onRetrySuccess }) {
                               <button
                                 onClick={() => handleRetry(item)}
                                 disabled={retryingId === item.id}
-                                className={`p-2 bg-slate-800 rounded-lg transition-colors flex items-center gap-1 ${retryingId === item.id ? 'text-slate-600 opacity-50 cursor-not-allowed' : 'hover:bg-emerald-600/20 text-slate-400 hover:text-emerald-400'}`}
+                                className={`p-2 dark:bg-gray-700 bg-gray-100 rounded-lg transition-colors flex items-center gap-1 ${retryingId === item.id ? 'text-slate-600 opacity-50 cursor-not-allowed' : 'hover:bg-emerald-600/20 dark:text-gray-400 text-gray-600 hover:text-emerald-400'}`}
                               >
                                 {retryingId === item.id ? <span className="text-[10px] animate-pulse">Retrying...</span> : <SafeIcon icon={FiRefreshCw} />}
                               </button>
                             )}
                             <button
                               onClick={() => handleDelete(item.id)}
-                              className="p-2 bg-slate-800 hover:bg-red-600/20 text-slate-400 hover:text-red-400 rounded-lg transition-colors"
+                              className="p-2 dark:bg-gray-700 bg-gray-100 hover:bg-red-600/20 dark:text-gray-400 text-gray-600 hover:text-red-400 rounded-lg transition-colors"
                             >
                               <SafeIcon icon={FiTrash2} />
                             </button>
@@ -360,26 +360,26 @@ export default function RecoveryCenter({ onRetrySuccess }) {
       </div>
 
       {editingItem && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl">
-            <div className="p-6 border-b border-slate-800 flex justify-between items-center">
+        <div className="fixed inset-0 dark:bg-gray-900 bg-gray-50/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="dark:bg-gray-800 bg-white border dark:border-gray-700 border-gray-200 w-full max-w-2xl rounded-2xl shadow-2xl">
+            <div className="p-6 border-b dark:border-gray-700 border-gray-200 flex justify-between items-center">
               <h4 className="text-white font-bold flex items-center gap-2">
                 <SafeIcon icon={FiEdit3} className="text-blue-400" />
                 Repair Payload: {editingItem.id}
               </h4>
-              <button onClick={() => setEditingItem(null)} className="text-slate-500 hover:text-white"><SafeIcon icon={FiX} /></button>
+              <button onClick={() => setEditingItem(null)} className="dark:text-gray-500 text-gray-500 hover:text-white"><SafeIcon icon={FiX} /></button>
             </div>
             <div className="p-6">
               <textarea 
-                className="w-full h-64 bg-slate-950 text-blue-400 font-mono text-sm p-4 rounded-xl border border-slate-800 focus:border-blue-500 outline-none"
+                className="w-full h-64 dark:bg-gray-900 bg-gray-50 text-blue-400 font-mono text-sm p-4 rounded-xl border dark:border-gray-700 border-gray-200 focus:border-blue-500 outline-none"
                 value={editPayload}
                 onChange={(e) => setEditPayload(e.target.value)}
               />
               <div className="mt-6 flex justify-end gap-3">
-                <button onClick={() => setEditingItem(null)} className="px-4 py-2 text-xs font-bold text-slate-400">CANCEL</button>
+                <button onClick={() => setEditingItem(null)} className="px-4 py-2 text-xs font-bold dark:text-gray-400 text-gray-600">CANCEL</button>
                 <button 
                   onClick={handleUpdate}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold flex items-center gap-2"
+                  className="px-6 py-2 bg-blue-600 dark:bg-blue-600 text-white rounded-lg text-xs font-bold flex items-center gap-2"
                 >
                   <SafeIcon icon={FiCheck} /> SAVE CHANGES
                 </button>

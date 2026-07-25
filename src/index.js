@@ -801,6 +801,23 @@ export default {
            });
         }
 
+        if (rawPayload.test_mode) {
+           let results = [];
+           for (const record of records) {
+              const sanitized = sanitizeLeadData(record);
+              if (sanitized.isValid) {
+                 const enriched = await enrichRecord(env, ctx, sanitized);
+                 results.push(enriched);
+              } else {
+                 results.push(sanitized);
+              }
+           }
+           return new Response(JSON.stringify(results), {
+               status: 200,
+               headers: { 'Content-Type': 'application/json' }
+           });
+        }
+
         // Out-of-band Processing via ctx.waitUntil
         // Processes array in small chunks (e.g. 50 records at a time) through sanitize and enrich
         ctx.waitUntil(processInBatches(env, source, records, ctx));

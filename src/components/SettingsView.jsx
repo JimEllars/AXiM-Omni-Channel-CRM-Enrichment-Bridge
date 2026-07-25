@@ -132,7 +132,7 @@ export default function SettingsView() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       <div className="lg:col-span-2 space-y-6">
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
+        <div className="dark:bg-gray-800 bg-white/50 border dark:border-gray-700 border-gray-200 rounded-xl p-6">
           <h4 className="text-white font-bold mb-6 flex items-center gap-2">
             <SafeIcon icon={FiUser} className="text-blue-400" />
             Identity & Access (IAM)
@@ -143,14 +143,14 @@ export default function SettingsView() {
               { user: 'Pipeline Bot', role: 'API Access', status: 'Token Rotated' },
               { user: 'Compliance Officer', role: 'Read-Only', status: 'Active' },
             ].map(u => (
-              <div key={u.user} className="flex items-center justify-between p-4 bg-slate-950/50 border border-slate-800 rounded-xl">
+              <div key={u.user} className="flex items-center justify-between p-4 dark:bg-gray-900 bg-gray-50/50 border dark:border-gray-700 border-gray-200 rounded-xl">
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-400">
+                  <div className="w-10 h-10 rounded-full dark:bg-gray-700 bg-gray-100 flex items-center justify-center dark:text-gray-400 text-gray-600">
                     <SafeIcon icon={FiUser} />
                   </div>
                   <div>
                     <p className="text-sm font-bold text-white">{u.user}</p>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest">{u.role}</p>
+                    <p className="text-[10px] dark:text-gray-500 text-gray-500 uppercase tracking-widest">{u.role}</p>
                   </div>
                 </div>
                 <span className="text-[10px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2 py-1 rounded font-bold uppercase">
@@ -158,19 +158,19 @@ export default function SettingsView() {
                 </span>
               </div>
             ))}
-            <button className="w-full py-3 border-2 border-dashed border-slate-800 rounded-xl text-slate-500 text-xs font-bold hover:border-blue-500 hover:text-blue-400 transition-all">
+            <button className="w-full py-3 border-2 border-dashed dark:border-gray-700 border-gray-200 rounded-xl dark:text-gray-500 text-gray-500 text-xs font-bold hover:border-blue-500 hover:text-blue-400 transition-all">
               + INVITE TEAM MEMBER
             </button>
           </div>
         </div>
 
         {/* Onyx Agent Connections Section */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
+        <div className="dark:bg-gray-800 bg-white/50 border dark:border-gray-700 border-gray-200 rounded-xl p-6">
           <h4 className="text-white font-bold mb-6 flex items-center gap-2">
             <SafeIcon icon={FiKey} className="text-purple-400" />
             Onyx Agent Connections
           </h4>
-          <p className="text-slate-400 text-sm mb-4">
+          <p className="dark:text-gray-400 text-gray-600 text-sm mb-4">
             Generate revocable API keys for Onyx Desktop Agents. These keys only grant access to the batch upload ingress route and cannot access management features.
           </p>
           <div className="flex flex-col gap-4">
@@ -180,9 +180,9 @@ export default function SettingsView() {
             >
               <SafeIcon icon={FiPlus} /> Generate & Provision New Key
             </button>
-            {keyStatus && <p className="text-sm text-slate-300 mt-2">{keyStatus}</p>}
+            {keyStatus && <p className="text-sm dark:text-gray-300 text-gray-800 mt-2">{keyStatus}</p>}
             {newAgentKey && (
-              <div className="bg-slate-950/80 border border-purple-500/30 p-4 rounded-lg mt-2 relative">
+              <div className="dark:bg-gray-900 bg-gray-50/80 border border-purple-500/30 p-4 rounded-lg mt-2 relative">
                 <p className="text-xs text-purple-400 font-bold mb-1 uppercase tracking-widest">Secret Agent Key (Show Once)</p>
                 <code className="text-white text-lg font-mono break-all">{newAgentKey}</code>
               </div>
@@ -191,7 +191,7 @@ export default function SettingsView() {
         </div>
 
         {/* IP Management Section */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
+        <div className="dark:bg-gray-800 bg-white/50 border dark:border-gray-700 border-gray-200 rounded-xl p-6">
           <h4 className="text-white font-bold mb-6 flex items-center gap-2">
             <SafeIcon icon={FiShield} className="text-emerald-400" />
             Allowed Ingress IPs
@@ -201,7 +201,7 @@ export default function SettingsView() {
             <input
               type="text"
               placeholder="Enter IPv4 or IPv6 address..."
-              className="flex-1 bg-slate-950/50 border border-slate-800 text-white px-4 py-2 rounded-lg focus:outline-none focus:border-emerald-500 text-sm"
+              className="flex-1 dark:bg-gray-900 bg-gray-50/50 border dark:border-gray-700 border-gray-200 text-white px-4 py-2 rounded-lg focus:outline-none focus:border-emerald-500 text-sm"
               value={newIp}
               onChange={(e) => setNewIp(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddIp()}
@@ -217,14 +217,14 @@ export default function SettingsView() {
 
           <div className="space-y-2 mb-6 max-h-48 overflow-y-auto pr-2">
             {ips.length === 0 ? (
-              <p className="text-slate-500 text-sm italic">No IPs whitelisted. System will fail-open (all allowed).</p>
+              <p className="dark:text-gray-500 text-gray-500 text-sm italic">No IPs whitelisted. System will fail-open (all allowed).</p>
             ) : (
               ips.map(ip => (
-                <div key={ip} className="flex items-center justify-between p-3 bg-slate-950/50 border border-slate-800 rounded-lg">
-                  <span className="text-sm font-mono text-slate-300">{ip}</span>
+                <div key={ip} className="flex items-center justify-between p-3 dark:bg-gray-900 bg-gray-50/50 border dark:border-gray-700 border-gray-200 rounded-lg">
+                  <span className="text-sm font-mono dark:text-gray-300 text-gray-800">{ip}</span>
                   <button
                     onClick={() => handleRemoveIp(ip)}
-                    className="text-slate-500 hover:text-red-400 transition-colors"
+                    className="dark:text-gray-500 text-gray-500 hover:text-red-400 transition-colors"
                   >
                     <SafeIcon icon={FiTrash2} />
                   </button>
@@ -233,11 +233,11 @@ export default function SettingsView() {
             )}
           </div>
 
-          <div className="flex items-center justify-between border-t border-slate-800 pt-4">
-            <span className="text-xs text-slate-400">{syncStatus}</span>
+          <div className="flex items-center justify-between border-t dark:border-gray-700 border-gray-200 pt-4">
+            <span className="text-xs dark:text-gray-400 text-gray-600">{syncStatus}</span>
             <button
               onClick={handleSyncIps}
-              className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg flex items-center gap-2 transition-all text-sm font-bold shadow-lg shadow-blue-500/20"
+              className="bg-blue-600 dark:bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 text-white px-6 py-2 rounded-lg flex items-center gap-2 transition-all text-sm font-bold shadow-lg shadow-blue-500/20"
             >
               <SafeIcon icon={FiSave} /> Save & Sync
             </button>
@@ -246,19 +246,19 @@ export default function SettingsView() {
       </div>
 
       <div className="space-y-6">
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
+        <div className="dark:bg-gray-800 bg-white/50 border dark:border-gray-700 border-gray-200 rounded-xl p-6">
           <h4 className="text-white font-bold mb-4 flex items-center gap-2">
             <SafeIcon icon={FiBell} className="text-amber-400" />
             Alerting Triggers
           </h4>
 
           <div className="mb-6">
-            <label className="text-xs text-slate-400 block mb-2 font-bold">System Alerts Webhook (Slack/Discord)</label>
+            <label className="text-xs dark:text-gray-400 text-gray-600 block mb-2 font-bold">System Alerts Webhook (Slack/Discord)</label>
             <div className="flex items-center gap-2">
               <input
                 type="text"
                 placeholder="https://hooks.slack.com/services/..."
-                className="flex-1 bg-slate-950/50 border border-slate-800 text-white px-3 py-2 rounded-lg focus:outline-none focus:border-amber-500 text-xs"
+                className="flex-1 dark:bg-gray-900 bg-gray-50/50 border dark:border-gray-700 border-gray-200 text-white px-3 py-2 rounded-lg focus:outline-none focus:border-amber-500 text-xs"
                 value={alertWebhook}
                 onChange={(e) => setAlertWebhook(e.target.value)}
               />
@@ -272,18 +272,18 @@ export default function SettingsView() {
             {webhookSyncStatus && <p className="text-[10px] text-amber-400 mt-1">{webhookSyncStatus}</p>}
           </div>
 
-          <div className="space-y-4 pt-4 border-t border-slate-800/50">
+          <div className="space-y-4 pt-4 border-t dark:border-gray-700 border-gray-200/50">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-400">Critical Failures (Slack)</span>
-              <div className="w-8 h-4 bg-blue-600 rounded-full relative"><div className="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div></div>
+              <span className="text-xs dark:text-gray-400 text-gray-600">Critical Failures (Slack)</span>
+              <div className="w-8 h-4 bg-blue-600 dark:bg-blue-600 rounded-full relative"><div className="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div></div>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-400">Monthly Usage Report</span>
-              <div className="w-8 h-4 bg-slate-800 rounded-full relative"><div className="absolute left-0.5 top-0.5 w-3 h-3 bg-slate-600 rounded-full"></div></div>
+              <span className="text-xs dark:text-gray-400 text-gray-600">Monthly Usage Report</span>
+              <div className="w-8 h-4 dark:bg-gray-700 bg-gray-100 rounded-full relative"><div className="absolute left-0.5 top-0.5 w-3 h-3 bg-slate-600 rounded-full"></div></div>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-400">KV Memory High Load</span>
-              <div className="w-8 h-4 bg-blue-600 rounded-full relative"><div className="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div></div>
+              <span className="text-xs dark:text-gray-400 text-gray-600">KV Memory High Load</span>
+              <div className="w-8 h-4 bg-blue-600 dark:bg-blue-600 rounded-full relative"><div className="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div></div>
             </div>
           </div>
         </div>
@@ -294,7 +294,7 @@ export default function SettingsView() {
             <span className="font-black text-xs uppercase">Compute Plan</span>
           </div>
           <h5 className="text-lg font-bold text-white">Enterprise Tier</h5>
-          <p className="text-xs text-slate-400 mt-1 mb-4">Unlimited Edge Workers & KV Invocations</p>
+          <p className="text-xs dark:text-gray-400 text-gray-600 mt-1 mb-4">Unlimited Edge Workers & KV Invocations</p>
           <div className="flex items-center gap-2 text-emerald-400 text-[10px] font-bold">
             <SafeIcon icon={FiCheckCircle} />
             SLA: 99.99% GUARANTEED
