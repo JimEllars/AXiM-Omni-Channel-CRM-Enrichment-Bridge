@@ -32,6 +32,49 @@ export const sourceService = {
     return deleteRow(TAB, id);
   },
 
+
+  async replayFailedOutbound(env, records) {
+    // Process in chunks of 5
+    const chunkSize = 5;
+    for (let i = 0; i < records.length; i += chunkSize) {
+      const chunk = records.slice(i, i + chunkSize);
+
+      await Promise.all(chunk.map(async (record) => {
+        try {
+          let recordPayload = typeof record.payload === 'string' ? JSON.parse(record.payload) : record.payload;
+
+          if (!recordPayload || !recordPayload.target_url) {
+            console.warn(`Record ${record.id} missing target_url in payload.`);
+            return;
+          }
+
+          const response = await fetch(recordPayload.target_url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(recordPayload.original_payload)
+          });
+
+          if (response.ok) {
+            const coreRestUrl = env.AXIM_CORE_REST_URL || 'https://api.axim.us.com';
+            const dlqEndpoint = `${coreRestUrl}/rest/v1/dlq_records?id=eq.${record.id}`;
+
+            await fetch(dlqEndpoint, {
+              method: 'DELETE',
+              headers: {
+                'apikey': env.AXIM_INTERNAL_KEY,
+                'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}`
+              }
+            });
+          }
+        } catch (error) {
+          console.error(`Failed to replay record ${record.id}:`, error.message);
+        }
+      }));
+    }
+  },
+
   async dispatchOutboundWebhook(env, ctx, targetUrl, payload, destinationName = 'Unknown') {
     if (!ctx || !ctx.waitUntil) {
       console.warn('dispatchOutboundWebhook called without valid ctx');
