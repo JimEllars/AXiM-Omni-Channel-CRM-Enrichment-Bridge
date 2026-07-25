@@ -36,6 +36,7 @@ export const sourceService = {
   async replayFailedOutbound(env, records) {
     // Process in chunks of 5
     const chunkSize = 5;
+    let successCount = 0;
     for (let i = 0; i < records.length; i += chunkSize) {
       const chunk = records.slice(i, i + chunkSize);
 
@@ -67,12 +68,14 @@ export const sourceService = {
                 'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}`
               }
             });
+            successCount++;
           }
         } catch (error) {
           console.error(`Failed to replay record ${record.id}:`, error.message);
         }
       }));
     }
+    return successCount;
   },
 
   async dispatchOutboundWebhook(env, ctx, targetUrl, payload, destinationName = 'Unknown') {

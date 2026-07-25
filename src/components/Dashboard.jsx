@@ -11,6 +11,7 @@ export default function Dashboard({ stats }) {
   const [rateLimitDrops, setRateLimitDrops] = useState(null);
   const [edgeAiSuccess, setEdgeAiSuccess] = useState(0);
   const [edgeAiFallback, setEdgeAiFallback] = useState(0);
+  const [automatedRecoveries, setAutomatedRecoveries] = useState(0);
   const [loadingRescues, setLoadingRescues] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
 
@@ -28,10 +29,12 @@ export default function Dashboard({ stats }) {
           setRateLimitDrops(data.rate_limit_drops);
           setEdgeAiSuccess(data.edge_ai_success || 0);
           setEdgeAiFallback(data.edge_ai_fallback || 0);
+          setAutomatedRecoveries(data.automated_success || 0);
           setErrorMsg(null);
         } else {
           setAiRescues(0);
           setRateLimitDrops(0);
+          setAutomatedRecoveries(0);
           if (response.status === 401) setErrorMsg("Unauthorized: Invalid Session Key for analytics.");
           else if (response.status === 429) setErrorMsg("Rate limited fetching analytics.");
         }
@@ -65,6 +68,7 @@ export default function Dashboard({ stats }) {
     },
     { title: 'Avg Latency', value: '42ms', icon: FiZap, color: 'text-purple-400', bg: 'bg-purple-400/10', trend: 'STABLE' },
     { title: 'Blocked Volumetric Attacks', value: loadingRescues ? '...' : (rateLimitDrops || 0), icon: FiShieldOff, color: 'text-rose-400', bg: 'bg-rose-400/10', trend: 'LIVE' },
+    { title: 'Automated Recoveries (24h)', value: loadingRescues ? '...' : (automatedRecoveries || 0), icon: FiActivity, color: 'text-emerald-400', bg: 'bg-emerald-400/10', trend: 'AUTO' },
   ];
 
   return (
@@ -74,7 +78,7 @@ export default function Dashboard({ stats }) {
           <span className="text-sm font-bold">{errorMsg}</span>
         </div>
       )}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 lg:grid-cols-4 gap-4">
         {cards.map((card, i) => (
           <motion.div 
             initial={{ opacity: 0, y: 20 }} 
