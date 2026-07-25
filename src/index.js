@@ -348,15 +348,19 @@ export default {
         let rateLimitDrops = 0;
         let edgeAiSuccess = 0;
         let edgeAiFallback = 0;
+        let automatedSuccess = 0;
         if (env.CRM_BRIDGE_ROUTING_RULES) {
           const val = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:ai_rescues:total');
           const dropsVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:rate_limit_drops:total');
           const edgeSuccessVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:edge_ai:success_count');
           const edgeFallbackVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:edge_ai:fallback_count');
+          const autoSuccessVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:recovery:automated_success');
+
           rateLimitDrops = dropsVal ? parseInt(dropsVal, 10) : 0;
           cognitiveRescues = val ? parseInt(val, 10) : 0;
           edgeAiSuccess = edgeSuccessVal ? parseInt(edgeSuccessVal, 10) : 0;
           edgeAiFallback = edgeFallbackVal ? parseInt(edgeFallbackVal, 10) : 0;
+          automatedSuccess = autoSuccessVal ? parseInt(autoSuccessVal, 10) : 0;
         }
 
         let agentUploads = 0;
@@ -365,7 +369,7 @@ export default {
            agentUploads = auVal ? parseInt(auVal, 10) : 0;
         }
 
-        return new Response(JSON.stringify({ cognitive_rescues: cognitiveRescues, rate_limit_drops: rateLimitDrops, agent_uploads: agentUploads, edge_ai_success: edgeAiSuccess, edge_ai_fallback: edgeAiFallback }), {          status: 200,
+        return new Response(JSON.stringify({ cognitive_rescues: cognitiveRescues, rate_limit_drops: rateLimitDrops, agent_uploads: agentUploads, edge_ai_success: edgeAiSuccess, edge_ai_fallback: edgeAiFallback, automated_success: automatedSuccess }), {          status: 200,
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (error) {
@@ -553,6 +557,11 @@ export default {
                 ipWhitelistCacheTime = 0;
                 globalThis.ipWhitelistCacheTime = 0;
 
+                count++;
+                hasJsonPayload = true;
+            }
+            if (payload && payload.alert_webhook !== undefined && env.CRM_BRIDGE_ROUTING_RULES) {
+                await env.CRM_BRIDGE_ROUTING_RULES.put('config:alert_webhook', payload.alert_webhook);
                 count++;
                 hasJsonPayload = true;
             }
@@ -850,7 +859,19 @@ export default {
 
         if (records && records.length > 0) {
           const { sourceService } = await import('./services/sourceService.js');
-          await sourceService.replayFailedOutbound(env, records);
+          const successCount = await sourceService.replayFailedOutbound(env, records);
+
+          if (successCount > 0 && env.CRM_BRIDGE_ROUTING_RULES) {
+            ctx.waitUntil((async () => {
+              try {
+                const currentStr = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:recovery:automated_success');
+                const current = currentStr ? parseInt(currentStr, 10) : 0;
+                await env.CRM_BRIDGE_ROUTING_RULES.put('analytics:recovery:automated_success', (current + successCount).toString());
+              } catch (kvError) {
+                console.error("Failed to update automated_success in KV:", kvError);
+              }
+            })());
+          }
         }
 
         const checkRes = await fetch(`${dlqEndpoint}?select=id`, {
@@ -864,8 +885,20 @@ export default {
         if (checkRes.ok) {
            const allRecords = await checkRes.json();
            if (allRecords.length > 50) {
-              if (env.ALERT_WEBHOOK_URL) {
-                 await fetch(env.ALERT_WEBHOOK_URL, {
+              let alertUrl = null;
+              if (env.CRM_BRIDGE_ROUTING_RULES) {
+                  try {
+                      alertUrl = await env.CRM_BRIDGE_ROUTING_RULES.get('config:alert_webhook');
+                  } catch (e) {
+                      console.error("Failed to fetch alert_webhook from KV:", e);
+                  }
+              }
+              if (!alertUrl) {
+                  alertUrl = env.ALERT_WEBHOOK_URL;
+              }
+
+              if (alertUrl) {
+                 await fetch(alertUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({

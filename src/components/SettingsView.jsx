@@ -5,6 +5,8 @@ import { FiUser, FiBell, FiZap, FiCheckCircle, FiShield, FiTrash2, FiPlus, FiSav
 
 export default function SettingsView() {
   const [ips, setIps] = useState([]);
+  const [alertWebhook, setAlertWebhook] = useState('');
+  const [webhookSyncStatus, setWebhookSyncStatus] = useState('');
   const [newIp, setNewIp] = useState('');
   const [ipError, setIpError] = useState('');
   const [syncStatus, setSyncStatus] = useState('');
@@ -100,6 +102,30 @@ export default function SettingsView() {
     } catch (e) {
       console.error(e);
       setSyncStatus('Sync error.');
+    }
+  };
+
+  const handleSyncWebhook = async () => {
+    setWebhookSyncStatus('Saving...');
+    try {
+      const response = await apiFetch(`/v1/management/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionStorage.getItem('AXIM_AUTH_KEY') || ''}`
+        },
+        body: JSON.stringify({ alert_webhook: alertWebhook })
+      });
+
+      if (response.ok) {
+        setWebhookSyncStatus('Saved successfully!');
+        setTimeout(() => setWebhookSyncStatus(''), 3000);
+      } else {
+        setWebhookSyncStatus('Save failed.');
+      }
+    } catch (e) {
+      console.error(e);
+      setWebhookSyncStatus('Save error.');
     }
   };
 
@@ -225,7 +251,28 @@ export default function SettingsView() {
             <SafeIcon icon={FiBell} className="text-amber-400" />
             Alerting Triggers
           </h4>
-          <div className="space-y-4">
+
+          <div className="mb-6">
+            <label className="text-xs text-slate-400 block mb-2 font-bold">System Alerts Webhook (Slack/Discord)</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="https://hooks.slack.com/services/..."
+                className="flex-1 bg-slate-950/50 border border-slate-800 text-white px-3 py-2 rounded-lg focus:outline-none focus:border-amber-500 text-xs"
+                value={alertWebhook}
+                onChange={(e) => setAlertWebhook(e.target.value)}
+              />
+              <button
+                onClick={handleSyncWebhook}
+                className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-3 py-2 rounded-lg hover:bg-amber-500/20 transition-all text-xs font-bold whitespace-nowrap"
+              >
+                Save URL
+              </button>
+            </div>
+            {webhookSyncStatus && <p className="text-[10px] text-amber-400 mt-1">{webhookSyncStatus}</p>}
+          </div>
+
+          <div className="space-y-4 pt-4 border-t border-slate-800/50">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-400">Critical Failures (Slack)</span>
               <div className="w-8 h-4 bg-blue-600 rounded-full relative"><div className="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div></div>
