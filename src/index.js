@@ -266,9 +266,21 @@ export default {
         const clientSecret = request.headers.get('X-AXiM-Client-Secret');
 
         let isAuthorized = false;
-        if (authHeader === `Bearer ${env.AXIM_INTERNAL_KEY}` || internalAuth === env.AXIM_INTERNAL_KEY) {
-           isAuthorized = true;
-        } else if (clientSecret && env.AXIM_CLIENT_SECRET && clientSecret === env.AXIM_CLIENT_SECRET) {
+        let scraperApiKeys = [];
+        try {
+           if (env.CRM_BRIDGE_ROUTING_RULES) {
+               const keysStr = await env.CRM_BRIDGE_ROUTING_RULES.get('config:scraper_api_keys');
+               if (keysStr) {
+                   scraperApiKeys = JSON.parse(keysStr);
+               }
+           }
+        } catch (e) {
+           console.error('Failed to get scraper_api_keys', e);
+        }
+
+        const providedKey = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.substring(7) : (internalAuth || clientSecret);
+
+        if (providedKey && scraperApiKeys.includes(providedKey)) {
            isAuthorized = true;
         }
 
@@ -326,6 +338,14 @@ export default {
                recentKeys.unshift(`ecosystem_data:${uuid}`);
                recentKeys = recentKeys.slice(0, 100); // Keep last 100
                await env.CRM_BRIDGE_DEDUPE.put(recentKey, JSON.stringify(recentKeys));
+
+               // Dispatch ecosystem broadcast
+               const broadcastPayload = {
+                   metadata: { source: payload.source || 'universal_ingress', processed_at: new Date().toISOString() },
+                   data: validRecords
+               };
+               const { sourceService } = await import('./services/sourceService.js');
+               sourceService.dispatchEcosystemBroadcast(env, ctx, broadcastPayload);
             }
           } catch (e) {
             console.error('Ecosystem ingest processing failed in background:', e);
@@ -721,6 +741,16 @@ export default {
             }
             if (payload && payload.ecosystem_ttl !== undefined && env.CRM_BRIDGE_ROUTING_RULES) {
                 await env.CRM_BRIDGE_ROUTING_RULES.put('config:ecosystem_ttl', payload.ecosystem_ttl.toString());
+                count++;
+                hasJsonPayload = true;
+            }
+            if (payload && Array.isArray(payload.scraper_api_keys) && env.CRM_BRIDGE_ROUTING_RULES) {
+                await env.CRM_BRIDGE_ROUTING_RULES.put('config:scraper_api_keys', JSON.stringify(payload.scraper_api_keys));
+                count++;
+                hasJsonPayload = true;
+            }
+            if (payload && Array.isArray(payload.ecosystem_subscribers) && env.CRM_BRIDGE_ROUTING_RULES) {
+                await env.CRM_BRIDGE_ROUTING_RULES.put('config:ecosystem_subscribers', JSON.stringify(payload.ecosystem_subscribers));
                 count++;
                 hasJsonPayload = true;
             }
