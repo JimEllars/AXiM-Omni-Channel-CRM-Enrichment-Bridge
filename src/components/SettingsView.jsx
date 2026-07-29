@@ -11,6 +11,8 @@ export default function SettingsView() {
   const [ipError, setIpError] = useState('');
   const [syncStatus, setSyncStatus] = useState('');
   const [errorMsg, setErrorMsg] = useState(null);
+  const [ecosystemTtl, setEcosystemTtl] = useState(7);
+  const [ttlSyncStatus, setTtlSyncStatus] = useState('');
 
   const [newAgentKey, setNewAgentKey] = useState('');
   const [keyStatus, setKeyStatus] = useState('');
@@ -102,6 +104,30 @@ export default function SettingsView() {
     } catch (e) {
       console.error(e);
       setSyncStatus('Sync error.');
+    }
+  };
+
+  const handleSyncTtl = async () => {
+    setTtlSyncStatus('Syncing...');
+    try {
+      const ttlSeconds = ecosystemTtl * 86400;
+      const response = await apiFetch('/v1/management/config/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionStorage.getItem('AXIM_AUTH_KEY') || ''}`
+        },
+        body: JSON.stringify({ ecosystem_ttl: ttlSeconds })
+      });
+
+      if (response.ok) {
+        setTtlSyncStatus('TTL saved and synced.');
+        setTimeout(() => setTtlSyncStatus(''), 3000);
+      } else {
+        setTtlSyncStatus('Failed to save TTL.');
+      }
+    } catch (e) {
+      setTtlSyncStatus('Save error.');
     }
   };
 
@@ -248,6 +274,32 @@ export default function SettingsView() {
       <div className="space-y-6">
         <div className="dark:bg-gray-800 bg-white/50 border dark:border-gray-700 border-gray-200 rounded-xl p-6">
           <h4 className="text-white font-bold mb-4 flex items-center gap-2">
+            <SafeIcon icon={FiZap} className="text-blue-400" />
+            Scraper Data Retention (TTL)
+          </h4>
+          <div className="mb-6">
+            <label className="text-xs dark:text-gray-400 text-gray-600 block mb-2 font-bold">Ecosystem Data Lifespan</label>
+            <div className="flex items-center gap-2">
+              <select
+                className="flex-1 dark:bg-gray-900 bg-gray-50/50 border dark:border-gray-700 border-gray-200 text-white px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 text-xs"
+                value={ecosystemTtl}
+                onChange={(e) => setEcosystemTtl(parseInt(e.target.value, 10))}
+              >
+                <option value={7}>7 Days</option>
+                <option value={14}>14 Days</option>
+                <option value={30}>30 Days</option>
+              </select>
+              <button
+                onClick={handleSyncTtl}
+                className="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-3 py-2 rounded-lg hover:bg-blue-500/20 transition-all text-xs font-bold whitespace-nowrap"
+              >
+                Save TTL
+              </button>
+            </div>
+            {ttlSyncStatus && <p className="text-[10px] text-blue-400 mt-1">{ttlSyncStatus}</p>}
+          </div>
+
+          <h4 className="text-white font-bold mb-4 flex items-center gap-2 border-t dark:border-gray-700 border-gray-200/50 pt-4">
             <SafeIcon icon={FiBell} className="text-amber-400" />
             Alerting Triggers
           </h4>
