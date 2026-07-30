@@ -17,6 +17,7 @@ export default function DataImporter() {
   const [invalidData, setInvalidData] = useState(null);
   const [validationError, setValidationError] = useState(null);
   const fileInputRef = useRef(null);
+  const [logs, setLogs] = useState([]);
 
   const aximSchema = [
     { key: 'email', label: 'Email Address (Required)' },
@@ -100,6 +101,7 @@ export default function DataImporter() {
     setMapping(prev => ({ ...prev, [schemaKey]: headerValue }));
   };
 
+
   const handleProcess = async (discardInvalid = false) => {
     setIsProcessing(true);
     let finalData = data;
@@ -109,7 +111,7 @@ export default function DataImporter() {
     if (emailKey) {
        let invalidCount = 0;
        const validRows = [];
-       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+       const emailRegex = /^[^s@]+@[^s@]+.[^s@]+$/;
        for (const row of data) {
            const email = row[emailKey];
            if (!email || !emailRegex.test(String(email).trim())) {
@@ -143,6 +145,7 @@ export default function DataImporter() {
 
     setStatus('PROCESSING');
     setProgress(0);
+    setLogs([]);
 
     // Transform data according to mapping
     const mappedData = finalData.map(row => {
@@ -155,26 +158,52 @@ export default function DataImporter() {
       return newRow;
     });
 
-    const BATCH_SIZE = 50;
-    const totalBatches = Math.ceil(mappedData.length / BATCH_SIZE);
+    try {
+      const response = await fetch(import.meta.env.VITE_API_BASE_URL ? `${import.meta.env.VITE_API_BASE_URL}/v1/ecosystem/stream-ingest` : 'http://localhost:8787/v1/ecosystem/stream-ingest', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionStorage.getItem('AXIM_AUTH_KEY')}`,
+          'X-AXiM-Internal-Auth': sessionStorage.getItem('AXIM_AUTH_KEY') || import.meta.env.VITE_AXIM_INTERNAL_KEY || ''
+        },
+        body: JSON.stringify({ source: 'manual_import', records: mappedData, target_destination: targetDestination })
+      });
 
-    for (let i = 0; i < totalBatches; i++) {
-      const batch = mappedData.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
-
-      try {
-        await apiFetch('/v1/webhooks/enrich', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${sessionStorage.getItem('AXIM_AUTH_KEY')}`
-          },
-          body: JSON.stringify({ source: 'manual_import', records: batch, target_destination: targetDestination })
-        });
-      } catch (err) {
-        console.error("Batch error:", err);
+      if (!response.ok) {
+         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      setProgress(Math.round(((i + 1) / totalBatches) * 100));
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+
+      let done = false;
+      while (!done) {
+         const { value, done: readerDone } = await reader.read();
+         done = readerDone;
+         if (value) {
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const eventData = JSON.parse(line.substring(6));
+                        if (eventData.progress !== undefined) {
+                            setProgress(eventData.progress);
+                        }
+                        if (eventData.status) {
+                            setLogs(prev => [...prev, eventData.status]);
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse SSE line:", line, e);
+                    }
+                }
+            }
+         }
+      }
+
+    } catch (err) {
+      console.error("Stream error:", err);
+      setLogs(prev => [...prev, "Error: " + err.message]);
     }
 
     setStatus('DONE');
@@ -347,11 +376,23 @@ export default function DataImporter() {
                    : `${data.length} records have been successfully submitted to the pipeline.`}
                </p>
 
-               <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden mb-8">
+
+               <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden mb-4">
                  <div
                    className="h-full bg-blue-500 transition-all duration-300"
                    style={{ width: `${progress}%` }}
                  ></div>
+               </div>
+
+               <div className="bg-slate-950 rounded-xl p-4 text-left font-mono text-xs text-green-400 h-32 overflow-y-auto mb-8 border border-slate-800 shadow-inner">
+                 {logs.length === 0 ? <div className="text-slate-600 italic">Waiting for stream logs...</div> : null}
+                 {logs.map((log, i) => (
+                   <div key={i} className="mb-1">{'>'} {log}</div>
+                 ))}
+                 {/* Scroll to bottom dummy div */}
+                 <div style={{ float: "left", clear: "both" }}
+                      ref={(el) => { if (el) el.scrollIntoView({ behavior: 'smooth' }) }}>
+                 </div>
                </div>
 
                {status === 'DONE' && (
