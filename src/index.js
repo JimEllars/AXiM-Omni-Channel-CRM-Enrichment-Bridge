@@ -523,18 +523,25 @@ export default {
         let edgeAiSuccess = 0;
         let edgeAiFallback = 0;
         let automatedSuccess = 0;
+        let broadcastFailed = 0;
+        let broadcastSuccess = 0;
+
         if (env.CRM_BRIDGE_ROUTING_RULES) {
           const val = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:ai_rescues:total');
           const dropsVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:rate_limit_drops:total');
           const edgeSuccessVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:edge_ai:success_count');
           const edgeFallbackVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:edge_ai:fallback_count');
           const autoSuccessVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:recovery:automated_success');
+          const broadcastFailVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:broadcast:failed');
+          const broadcastSuccVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:broadcast:success');
 
           rateLimitDrops = dropsVal ? parseInt(dropsVal, 10) : 0;
           cognitiveRescues = val ? parseInt(val, 10) : 0;
           edgeAiSuccess = edgeSuccessVal ? parseInt(edgeSuccessVal, 10) : 0;
           edgeAiFallback = edgeFallbackVal ? parseInt(edgeFallbackVal, 10) : 0;
           automatedSuccess = autoSuccessVal ? parseInt(autoSuccessVal, 10) : 0;
+          broadcastFailed = broadcastFailVal ? parseInt(broadcastFailVal, 10) : 0;
+          broadcastSuccess = broadcastSuccVal ? parseInt(broadcastSuccVal, 10) : 0;
         }
 
         let agentUploads = 0;
@@ -543,7 +550,17 @@ export default {
            agentUploads = auVal ? parseInt(auVal, 10) : 0;
         }
 
-        return new Response(JSON.stringify({ cognitive_rescues: cognitiveRescues, rate_limit_drops: rateLimitDrops, agent_uploads: agentUploads, edge_ai_success: edgeAiSuccess, edge_ai_fallback: edgeAiFallback, automated_success: automatedSuccess }), {          status: 200,
+        return new Response(JSON.stringify({
+          cognitive_rescues: cognitiveRescues,
+          rate_limit_drops: rateLimitDrops,
+          agent_uploads: agentUploads,
+          edge_ai_success: edgeAiSuccess,
+          edge_ai_fallback: edgeAiFallback,
+          automated_success: automatedSuccess,
+          broadcast_failed: broadcastFailed,
+          broadcast_success: broadcastSuccess
+        }), {
+          status: 200,
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (error) {
@@ -1007,9 +1024,41 @@ export default {
            });
         }
 
-        // Out-of-band Processing via ctx.waitUntil
-        // Processes array in small chunks (e.g. 50 records at a time) through sanitize and enrich
-        ctx.waitUntil(processInBatches(env, source, records, ctx));
+        // Check for manual routing to ecosystem broadcast
+        if (rawPayload.target_destination === 'Ecosystem Broadcast') {
+           ctx.waitUntil((async () => {
+              try {
+                  const uuid = crypto.randomUUID();
+                  if (env.CRM_BRIDGE_DEDUPE) {
+                      await env.CRM_BRIDGE_DEDUPE.put(`ecosystem_data:${uuid}`, JSON.stringify({
+                          timestamp: new Date().toISOString(),
+                          records: records,
+                          source: source
+                      }), { expirationTtl: 86400 });
+
+                      const recentKey = 'ecosystem_data:recent_keys';
+                      const recentKeysStr = await env.CRM_BRIDGE_DEDUPE.get(recentKey);
+                      let recentKeys = recentKeysStr ? JSON.parse(recentKeysStr) : [];
+                      recentKeys.unshift(`ecosystem_data:${uuid}`);
+                      recentKeys = recentKeys.slice(0, 100);
+                      await env.CRM_BRIDGE_DEDUPE.put(recentKey, JSON.stringify(recentKeys));
+                  }
+
+                  const broadcastPayload = {
+                      metadata: { source: source, processed_at: new Date().toISOString() },
+                      data: records
+                  };
+                  const { sourceService } = await import('./services/sourceService.js');
+                  sourceService.dispatchEcosystemBroadcast(env, ctx, broadcastPayload);
+              } catch (e) {
+                  console.error('Ecosystem manual routing failed in background:', e);
+              }
+           })());
+        } else {
+            // Out-of-band Processing via ctx.waitUntil
+            // Processes array in small chunks (e.g. 50 records at a time) through sanitize and enrich
+            ctx.waitUntil(processInBatches(env, source, records, ctx));
+        }
 
         return new Response(JSON.stringify({ status: 'Accepted', processing_count: records.length }), {
             status: 202,

@@ -106,19 +106,76 @@ export const sourceService = {
                 body: JSON.stringify(payload)
             }).then(res => {
                 if (!res.ok) {
-                    throw new Error(`HTTP ${res.status}`);
+                    throw { error: new Error(`HTTP ${res.status}`), url };
                 }
-                return res;
+                return { res, url };
+            }).catch(err => {
+                throw { error: err, url };
             });
         });
 
         const results = await Promise.allSettled(requests);
 
         const failures = results.filter(r => r.status === 'rejected');
+        const successes = results.filter(r => r.status === 'fulfilled');
+
+        if (env.CRM_BRIDGE_ROUTING_RULES && ctx && ctx.waitUntil) {
+            ctx.waitUntil((async () => {
+                try {
+                    if (failures.length > 0) {
+                        const failVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:broadcast:failed');
+                        const newFail = (failVal ? parseInt(failVal, 10) : 0) + failures.length;
+                        await env.CRM_BRIDGE_ROUTING_RULES.put('analytics:broadcast:failed', newFail.toString());
+                    }
+                    if (successes.length > 0) {
+                        const succVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:broadcast:success');
+                        const newSucc = (succVal ? parseInt(succVal, 10) : 0) + successes.length;
+                        await env.CRM_BRIDGE_ROUTING_RULES.put('analytics:broadcast:success', newSucc.toString());
+                    }
+                } catch (e) {
+                    console.error('Failed to update broadcast metrics:', e);
+                }
+            })());
+        }
+
         if (failures.length > 0) {
             console.error(`${failures.length} ecosystem broadcast(s) failed`);
-            // We could log telemetry here if we import it, but console.error is sufficient for now
-            // as the instructions say: "Catch and log any individual subscriber fetch failures to the telemetry logger without crashing"
+
+            const coreRestUrl = env.AXIM_CORE_REST_URL || 'https://api.axim.us.com';
+            const dlqEndpoint = `${coreRestUrl}/rest/v1/dlq_records`;
+
+            failures.forEach(failure => {
+                const targetUrl = failure.reason && failure.reason.url ? failure.reason.url : 'unknown_subscriber';
+                const errorReason = failure.reason && failure.reason.error ? failure.reason.error.message : 'Unknown Network Error';
+
+                if (ctx && ctx.waitUntil) {
+                    ctx.waitUntil((async () => {
+                        try {
+                            const dlqPayload = {
+                                source: 'ecosystem_broadcast',
+                                error_reason: '[BROADCAST_SYNC_FAILED]',
+                                payload: JSON.stringify({
+                                    original_payload: payload,
+                                    target_url: targetUrl,
+                                    error_detail: errorReason,
+                                    destination: 'ecosystem_subscriber'
+                                })
+                            };
+                            await fetch(dlqEndpoint, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'apikey': env.AXIM_INTERNAL_KEY,
+                                    'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}`
+                                },
+                                body: JSON.stringify(dlqPayload)
+                            });
+                        } catch (dlqError) {
+                            console.error("Failed to write to DLQ for broadcast failure:", dlqError);
+                        }
+                    })());
+                }
+            });
         }
       } catch (error) {
         console.error('Ecosystem broadcast loop failed:', error.message);

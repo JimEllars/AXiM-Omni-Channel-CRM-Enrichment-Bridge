@@ -193,24 +193,36 @@ export default function SystemHealth() {
         </div>
       )}
       {analyticsData && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
-            <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">AI Success</p>
-            <p className="text-2xl font-black text-emerald-400">{analyticsData.edgeAiSuccess || 0}</p>
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
+              <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">AI Success</p>
+              <p className="text-2xl font-black text-emerald-400">{analyticsData.edge_ai_success || 0}</p>
+            </div>
+            <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
+              <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">AI Fallback</p>
+              <p className="text-2xl font-black text-amber-400">{analyticsData.edge_ai_fallback || 0}</p>
+            </div>
+            <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
+              <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Auto Recovery</p>
+              <p className="text-2xl font-black text-blue-400">{analyticsData.automated_success || 0}</p>
+            </div>
+            <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
+              <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Outbound Failed</p>
+              <p className="text-2xl font-black text-red-400">{analyticsData.cognitive_rescues || 0}</p>
+            </div>
           </div>
-          <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
-            <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">AI Fallback</p>
-            <p className="text-2xl font-black text-amber-400">{analyticsData.edgeAiFallback || 0}</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
+              <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Pub/Sub Broadcast Success</p>
+              <p className="text-2xl font-black text-emerald-400">{analyticsData.broadcast_success || 0}</p>
+            </div>
+            <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
+              <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Pub/Sub Broadcast Failed</p>
+              <p className="text-2xl font-black text-red-400">{analyticsData.broadcast_failed || 0}</p>
+            </div>
           </div>
-          <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
-            <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Auto Recovery</p>
-            <p className="text-2xl font-black text-blue-400">{analyticsData.automatedSuccess || 0}</p>
-          </div>
-          <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
-            <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Outbound Failed</p>
-            <p className="text-2xl font-black text-red-400">{analyticsData.cognitiveRescues || 0}</p>
-          </div>
-        </div>
+        </>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

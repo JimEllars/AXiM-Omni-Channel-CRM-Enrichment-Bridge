@@ -11,6 +11,7 @@ export default function DataImporter() {
   const [headers, setHeaders] = useState([]);
   const [mapping, setMapping] = useState({});
   const [status, setStatus] = useState('IDLE'); // IDLE, MAPPING, PROCESSING, DONE
+  const [targetDestination, setTargetDestination] = useState('CRM Sync');
   const [progress, setProgress] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [invalidData, setInvalidData] = useState(null);
@@ -167,7 +168,7 @@ export default function DataImporter() {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${sessionStorage.getItem('AXIM_AUTH_KEY')}`
           },
-          body: JSON.stringify({ source: 'manual_import', records: batch })
+          body: JSON.stringify({ source: 'manual_import', records: batch, target_destination: targetDestination })
         });
       } catch (err) {
         console.error("Batch error:", err);
@@ -199,6 +200,17 @@ export default function DataImporter() {
             Universal Data Importer
           </h2>
           <p className="text-slate-500 text-[10px] uppercase font-black tracking-widest mt-1">Batch Ingest & Normalization</p>
+        </div>
+        <div className="flex items-center gap-3 bg-slate-900/50 px-4 py-2 rounded-lg border border-slate-700">
+          <span className="text-xs font-bold text-slate-300">Target Destination:</span>
+          <select
+            value={targetDestination}
+            onChange={(e) => setTargetDestination(e.target.value)}
+            className="bg-slate-800 text-xs text-white border border-slate-700 rounded px-2 py-1 outline-none"
+          >
+            <option value="CRM Sync">CRM Sync</option>
+            <option value="Ecosystem Broadcast">Ecosystem Broadcast</option>
+          </select>
         </div>
       </div>
 
