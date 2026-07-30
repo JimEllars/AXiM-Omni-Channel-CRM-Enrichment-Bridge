@@ -14,6 +14,14 @@ export default function SettingsView() {
   const [ecosystemTtl, setEcosystemTtl] = useState(7);
   const [ttlSyncStatus, setTtlSyncStatus] = useState('');
 
+  const [scraperKeys, setScraperKeys] = useState([]);
+  const [newScraperKey, setNewScraperKey] = useState('');
+  const [scraperKeysStatus, setScraperKeysStatus] = useState('');
+
+  const [subscribers, setSubscribers] = useState([]);
+  const [newSubscriber, setNewSubscriber] = useState('');
+  const [subscribersStatus, setSubscribersStatus] = useState('');
+
   const [newAgentKey, setNewAgentKey] = useState('');
   const [keyStatus, setKeyStatus] = useState('');
 
@@ -104,6 +112,79 @@ export default function SettingsView() {
     } catch (e) {
       console.error(e);
       setSyncStatus('Sync error.');
+    }
+  };
+
+  const generateScraperKey = () => {
+    const array = new Uint8Array(16);
+    window.crypto.getRandomValues(array);
+    const key = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+    setNewScraperKey(key);
+  };
+
+  const addScraperKey = () => {
+    if (newScraperKey && !scraperKeys.includes(newScraperKey)) {
+        setScraperKeys([...scraperKeys, newScraperKey]);
+        setNewScraperKey('');
+    }
+  };
+
+  const removeScraperKey = (keyToRemove) => {
+    setScraperKeys(scraperKeys.filter(k => k !== keyToRemove));
+  };
+
+  const handleSyncScraperKeys = async () => {
+    setScraperKeysStatus('Saving...');
+    try {
+      const response = await apiFetch('/v1/management/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionStorage.getItem('AXIM_AUTH_KEY') || ''}`
+        },
+        body: JSON.stringify({ scraper_api_keys: scraperKeys })
+      });
+      if (response.ok) {
+        setScraperKeysStatus('Keys saved successfully.');
+        setTimeout(() => setScraperKeysStatus(''), 3000);
+      } else {
+        setScraperKeysStatus('Failed to save keys.');
+      }
+    } catch (e) {
+      setScraperKeysStatus('Save error.');
+    }
+  };
+
+  const addSubscriber = () => {
+    if (newSubscriber && !subscribers.includes(newSubscriber)) {
+        setSubscribers([...subscribers, newSubscriber]);
+        setNewSubscriber('');
+    }
+  };
+
+  const removeSubscriber = (urlToRemove) => {
+    setSubscribers(subscribers.filter(url => url !== urlToRemove));
+  };
+
+  const handleSyncSubscribers = async () => {
+    setSubscribersStatus('Saving...');
+    try {
+      const response = await apiFetch('/v1/management/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionStorage.getItem('AXIM_AUTH_KEY') || ''}`
+        },
+        body: JSON.stringify({ ecosystem_subscribers: subscribers })
+      });
+      if (response.ok) {
+        setSubscribersStatus('Subscribers saved successfully.');
+        setTimeout(() => setSubscribersStatus(''), 3000);
+      } else {
+        setSubscribersStatus('Failed to save subscribers.');
+      }
+    } catch (e) {
+      setSubscribersStatus('Save error.');
     }
   };
 
@@ -274,6 +355,80 @@ export default function SettingsView() {
       <div className="space-y-6">
         <div className="dark:bg-gray-800 bg-white/50 border dark:border-gray-700 border-gray-200 rounded-xl p-6">
           <h4 className="text-white font-bold mb-4 flex items-center gap-2">
+            <SafeIcon icon={FiKey} className="text-green-400" />
+            Scraper API Keys
+          </h4>
+          <div className="mb-6">
+            <label className="text-xs dark:text-gray-400 text-gray-600 block mb-2 font-bold">Manage API keys for B2B/B2C scraper apps</label>
+            <div className="flex gap-2 mb-2">
+              <input
+                type="text"
+                className="flex-1 dark:bg-gray-900 bg-gray-50/50 border dark:border-gray-700 border-gray-200 text-white px-3 py-2 rounded-lg focus:outline-none focus:border-green-500 text-xs font-mono"
+                placeholder="Generate or enter key..."
+                value={newScraperKey}
+                onChange={(e) => setNewScraperKey(e.target.value)}
+              />
+              <button onClick={generateScraperKey} className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-lg text-xs font-bold transition-all">Generate</button>
+              <button onClick={addScraperKey} className="bg-green-600/20 text-green-400 hover:bg-green-600/30 px-3 py-2 rounded-lg text-xs font-bold transition-all"><SafeIcon icon={FiPlus} /></button>
+            </div>
+
+            {scraperKeys.length > 0 && (
+              <div className="dark:bg-gray-900/50 rounded-lg p-2 mb-2">
+                {scraperKeys.map((key, idx) => (
+                  <div key={idx} className="flex justify-between items-center py-1 border-b dark:border-gray-700/50 last:border-0">
+                    <span className="text-white text-xs font-mono">{key}</span>
+                    <button onClick={() => removeScraperKey(key)} className="text-red-400 hover:text-red-300 p-1"><SafeIcon icon={FiTrash2} size={12} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 items-center mt-2">
+                <span className="text-xs text-gray-400">{scraperKeysStatus}</span>
+                <button onClick={handleSyncScraperKeys} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-lg shadow-green-500/20">
+                    <SafeIcon icon={FiSave} /> Save Keys
+                </button>
+            </div>
+          </div>
+
+          <h4 className="text-white font-bold mb-4 flex items-center gap-2 border-t dark:border-gray-700 pt-4">
+            <SafeIcon icon={FiZap} className="text-blue-400" />
+            Ecosystem Subscribers (Pub/Sub)
+          </h4>
+          <div className="mb-6">
+            <label className="text-xs dark:text-gray-400 text-gray-600 block mb-2 font-bold">Downstream Webhook URLs</label>
+            <div className="flex gap-2 mb-2">
+              <input
+                type="text"
+                className="flex-1 dark:bg-gray-900 bg-gray-50/50 border dark:border-gray-700 border-gray-200 text-white px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 text-xs"
+                placeholder="https://app.example.com/webhook"
+                value={newSubscriber}
+                onChange={(e) => setNewSubscriber(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addSubscriber()}
+              />
+              <button onClick={addSubscriber} className="bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 px-3 py-2 rounded-lg text-xs font-bold transition-all"><SafeIcon icon={FiPlus} /></button>
+            </div>
+
+            {subscribers.length > 0 && (
+              <div className="dark:bg-gray-900/50 rounded-lg p-2 mb-2">
+                {subscribers.map((url, idx) => (
+                  <div key={idx} className="flex justify-between items-center py-1 border-b dark:border-gray-700/50 last:border-0">
+                    <span className="text-white text-xs">{url}</span>
+                    <button onClick={() => removeSubscriber(url)} className="text-red-400 hover:text-red-300 p-1"><SafeIcon icon={FiTrash2} size={12} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 items-center mt-2">
+                <span className="text-xs text-gray-400">{subscribersStatus}</span>
+                <button onClick={handleSyncSubscribers} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-lg shadow-blue-500/20">
+                    <SafeIcon icon={FiSave} /> Save Subscribers
+                </button>
+            </div>
+          </div>
+
+          <h4 className="text-white font-bold mb-4 flex items-center gap-2 border-t dark:border-gray-700 border-gray-200/50 pt-4">
             <SafeIcon icon={FiZap} className="text-blue-400" />
             Scraper Data Retention (TTL)
           </h4>

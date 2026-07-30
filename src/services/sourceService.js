@@ -78,6 +78,60 @@ export const sourceService = {
     return successCount;
   },
 
+  async dispatchEcosystemBroadcast(env, ctx, payload) {
+    if (!ctx || !ctx.waitUntil) {
+      console.warn('dispatchEcosystemBroadcast called without valid ctx');
+    }
+
+    const broadcastPromise = (async () => {
+      try {
+        let subscribers = [];
+        if (env.CRM_BRIDGE_ROUTING_RULES) {
+            const subsStr = await env.CRM_BRIDGE_ROUTING_RULES.get('config:ecosystem_subscribers');
+            if (subsStr) {
+                subscribers = JSON.parse(subsStr);
+            }
+        }
+
+        if (!Array.isArray(subscribers) || subscribers.length === 0) {
+            return; // No subscribers
+        }
+
+        const requests = subscribers.map(url => {
+            return fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            }).then(res => {
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}`);
+                }
+                return res;
+            });
+        });
+
+        const results = await Promise.allSettled(requests);
+
+        const failures = results.filter(r => r.status === 'rejected');
+        if (failures.length > 0) {
+            console.error(`${failures.length} ecosystem broadcast(s) failed`);
+            // We could log telemetry here if we import it, but console.error is sufficient for now
+            // as the instructions say: "Catch and log any individual subscriber fetch failures to the telemetry logger without crashing"
+        }
+      } catch (error) {
+        console.error('Ecosystem broadcast loop failed:', error.message);
+      }
+    })();
+
+    if (ctx && ctx.waitUntil) {
+      ctx.waitUntil(broadcastPromise);
+    } else {
+      await broadcastPromise;
+    }
+  },
+
   async dispatchOutboundWebhook(env, ctx, targetUrl, payload, destinationName = 'Unknown') {
     if (!ctx || !ctx.waitUntil) {
       console.warn('dispatchOutboundWebhook called without valid ctx');
