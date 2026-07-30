@@ -891,6 +891,147 @@ export default {
     }
 
     // INGRESS: Webhook Catcher Endpoint
+
+    // INGRESS: SSE Stream Ingestion Endpoint
+    if (url.pathname === '/v1/ecosystem/stream-ingest' && request.method === 'POST') {
+      try {
+        // Authenticate incoming traffic using internal AXiM service key or fallback client secret
+        const authHeader = request.headers.get('Authorization');
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        const clientSecret = request.headers.get('X-AXiM-Client-Secret');
+
+        let isAuthorized = false;
+
+        if (authHeader === `Bearer ${env.AXIM_INTERNAL_KEY}` || internalAuth === env.AXIM_INTERNAL_KEY) {
+           isAuthorized = true;
+        } else if (clientSecret && (clientSecret === env.AXIM_CLIENT_SECRET || clientSecret === env.AXIM_CLIENT_SECRET_FALLBACK)) {
+           isAuthorized = true;
+        }
+
+        if (!isAuthorized) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        const rawPayload = await request.json();
+        const source = rawPayload.source || 'api';
+
+        let records = [];
+        if (Array.isArray(rawPayload.records)) {
+          records = rawPayload.records;
+        } else if (rawPayload.record) {
+          records = [rawPayload.record];
+        } else if (Array.isArray(rawPayload)) {
+          records = rawPayload;
+        } else {
+          return new Response('Invalid Payload Format: Expected records array or single record', { status: 400 });
+        }
+
+        if (records.length === 0) {
+           return new Response(JSON.stringify({ message: 'No records provided.' }), {
+             status: 200,
+             headers: { 'Content-Type': 'application/json' }
+           });
+        }
+
+        const { readable, writable } = new TransformStream();
+        const writer = writable.getWriter();
+        const encoder = new TextEncoder();
+
+        const sendEvent = async (data) => {
+           await writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        };
+
+        ctx.waitUntil((async () => {
+            try {
+                if (rawPayload.target_destination === 'Ecosystem Broadcast') {
+                    const uuid = crypto.randomUUID();
+                    if (env.CRM_BRIDGE_DEDUPE) {
+                        await env.CRM_BRIDGE_DEDUPE.put(`ecosystem_data:${uuid}`, JSON.stringify({
+                            timestamp: new Date().toISOString(),
+                            records: records,
+                            source: source
+                        }), { expirationTtl: 86400 });
+
+                        const recentKey = 'ecosystem_data:recent_keys';
+                        const recentKeysStr = await env.CRM_BRIDGE_DEDUPE.get(recentKey);
+                        let recentKeys = recentKeysStr ? JSON.parse(recentKeysStr) : [];
+                        recentKeys.unshift(`ecosystem_data:${uuid}`);
+                        recentKeys = recentKeys.slice(0, 100);
+                        await env.CRM_BRIDGE_DEDUPE.put(recentKey, JSON.stringify(recentKeys));
+                    }
+
+                    const broadcastPayload = {
+                        metadata: { source: source, processed_at: new Date().toISOString() },
+                        data: records
+                    };
+                    const { sourceService } = await import('./services/sourceService.js');
+                    sourceService.dispatchEcosystemBroadcast(env, ctx, broadcastPayload);
+
+                    await sendEvent({ progress: 100, status: "Broadcast complete." });
+                } else {
+                    const BATCH_SIZE = 50;
+                    const totalBatches = Math.ceil(records.length / BATCH_SIZE);
+                    let processedCount = 0;
+
+                    for (let i = 0; i < records.length; i += BATCH_SIZE) {
+                        const chunk = records.slice(i, i + BATCH_SIZE);
+                        const cleanRecords = [];
+                        let enrichmentFailCount = 0;
+
+                        await sendEvent({
+                            progress: Math.round(((i) / records.length) * 100),
+                            status: `Processing batch ${(i/BATCH_SIZE)+1}/${totalBatches} (${chunk.length} records)...`
+                        });
+
+                        for (const record of chunk) {
+                            const sanitized = sanitizeLeadData(record);
+                            if (sanitized.isValid) {
+                                const enriched = await enrichRecord(env, ctx, sanitized);
+                                if (enriched._enrichment_failed) {
+                                    enrichmentFailCount++;
+                                }
+                                cleanRecords.push(enriched);
+                            }
+                        }
+
+                        if (cleanRecords.length > 0) {
+                            await processAndDispatch(env, source, cleanRecords, ctx);
+                        }
+
+                        processedCount += chunk.length;
+                        await sendEvent({
+                            progress: Math.round((processedCount / records.length) * 100),
+                            status: `Batch ${(i/BATCH_SIZE)+1}/${totalBatches} complete. Enriched ${cleanRecords.length - enrichmentFailCount}, Failed ${enrichmentFailCount}`
+                        });
+
+                        // Yield event loop to prevent edge timeouts during heavy load
+                        await new Promise(r => setTimeout(r, 0));
+                    }
+
+                    await sendEvent({ progress: 100, status: `Ingestion complete. Processed ${records.length} records.` });
+                }
+            } catch (e) {
+                console.error("Stream processing error:", e);
+                try {
+                    await sendEvent({ progress: 100, status: "Error processing stream: " + e.message, error: true });
+                } catch (sendError) { console.error('Failed to send error event', sendError); }
+            } finally {
+                writer.close();
+            }
+        })());
+
+        return new Response(readable, {
+            headers: {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive'
+            }
+        });
+      } catch (error) {
+         return new Response('Internal Pipeline Error: ' + error.message, { status: 500 });
+      }
+    }
+
     if (url.pathname === '/v1/webhooks/enrich' && request.method === 'POST') {
       try {
 
