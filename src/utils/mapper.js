@@ -1,10 +1,13 @@
 /**
  * Maps standard lead records to Deskera CRM compatible format.
  */
-export function formatForDeskera(records) {
+export function formatForDeskera(records, pipelineConfig = null) {
   return records.map(record => {
-    // Basic mapping, adjusting keys to match target schema
+    const _lineage = record._lineage || { processing_time_ms: 0, ai_provider: 'none', rules_applied: [] };
+    _lineage.rules_applied.push('MAPPER_DESKERA');
+    if (pipelineConfig) _lineage.rules_applied.push('DYNAMIC_PIPELINE_DESKERA');
     const mapped = {
+      _lineage,
       first_name: record.firstName || record.first_name || '',
       last_name: record.lastName || record.last_name || '',
       email: record.email || '',
@@ -30,9 +33,13 @@ export function formatForDeskera(records) {
 
   });
 }
-export function formatForCore(records) {
+export function formatForCore(records, pipelineConfig = null) {
   return records.map(record => {
+    const _lineage = record._lineage || { processing_time_ms: 0, ai_provider: 'none', rules_applied: [] };
+    _lineage.rules_applied.push('MAPPER_CORE');
+    if (pipelineConfig) _lineage.rules_applied.push('DYNAMIC_PIPELINE_CORE');
     const mapped = {
+      _lineage,
       id: record.id || '',
       firstName: record.firstName || record.first_name || '',
       lastName: record.lastName || record.last_name || '',
@@ -69,9 +76,13 @@ export function formatForCore(records) {
   });
 }
 
-export function formatForUniversal(records) {
+export function formatForUniversal(records, pipelineConfig = null) {
   return records.map(record => {
+    const _lineage = record._lineage || { processing_time_ms: 0, ai_provider: 'none', rules_applied: [] };
+    _lineage.rules_applied.push('MAPPER_UNIVERSAL');
+    if (pipelineConfig) _lineage.rules_applied.push('DYNAMIC_PIPELINE_UNIVERSAL');
     const mapped = {
+      _lineage,
       profile_id: record.id || record.profile_id || '',
       first_name: record.firstName || record.first_name || '',
       last_name: record.lastName || record.last_name || '',
