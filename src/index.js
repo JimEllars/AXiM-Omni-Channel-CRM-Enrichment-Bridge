@@ -635,6 +635,27 @@ export default {
     }
 
     // DELETE route for DLQ dismissal
+
+    if (url.pathname === '/v1/management/pipeline-config' && request.method === 'POST') {
+      try {
+        const authHeader = request.headers.get('Authorization');
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        if (authHeader !== `Bearer ${env.AXIM_INTERNAL_KEY}` && internalAuth !== env.AXIM_INTERNAL_KEY) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+        const rawPayload = await request.json();
+        if (env.CRM_BRIDGE_ROUTING_RULES) {
+            await env.CRM_BRIDGE_ROUTING_RULES.put('config:active_pipeline', JSON.stringify(rawPayload));
+        }
+        return new Response(JSON.stringify({ status: 'success', message: 'Pipeline config saved' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (e) {
+          return new Response('Error saving config: ' + e.message, { status: 500 });
+      }
+    }
+
     if (url.pathname === '/v1/management/dlq-dismiss' && request.method === 'DELETE') {
       try {
         const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
@@ -941,6 +962,18 @@ export default {
            await writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
         };
 
+        let activePipeline = null;
+        if (env.CRM_BRIDGE_ROUTING_RULES) {
+            try {
+                const configStr = await env.CRM_BRIDGE_ROUTING_RULES.get('config:active_pipeline');
+                if (configStr) {
+                    activePipeline = JSON.parse(configStr);
+                }
+            } catch (e) {
+                console.error("Failed to load active pipeline config", e);
+            }
+        }
+
         ctx.waitUntil((async () => {
             try {
                 if (rawPayload.target_destination === 'Ecosystem Broadcast') {
@@ -986,7 +1019,7 @@ export default {
                         for (const record of chunk) {
                             const sanitized = sanitizeLeadData(record);
                             if (sanitized.isValid) {
-                                const enriched = await enrichRecord(env, ctx, sanitized);
+                                const enriched = await enrichRecord(env, ctx, sanitized, activePipeline);
                                 if (enriched._enrichment_failed) {
                                     enrichmentFailCount++;
                                 }
@@ -995,7 +1028,7 @@ export default {
                         }
 
                         if (cleanRecords.length > 0) {
-                            await processAndDispatch(env, source, cleanRecords, ctx);
+                            await processAndDispatch(env, source, cleanRecords, ctx, activePipeline);
                         }
 
                         processedCount += chunk.length;
@@ -1148,13 +1181,30 @@ export default {
            });
         }
 
+
+        // Fetch active pipeline configuration
+        let activePipeline = null;
+        if (env.CRM_BRIDGE_ROUTING_RULES) {
+            try {
+                // Use cache if possible or just fetch. Since we are in workers, KV gets are fast but could be cached
+                const configStr = await env.CRM_BRIDGE_ROUTING_RULES.get('config:active_pipeline');
+                if (configStr) {
+                    activePipeline = JSON.parse(configStr);
+                }
+            } catch (e) {
+                console.error("Failed to load active pipeline config", e);
+            }
+        }
+
         if (rawPayload.test_mode) {
            let results = [];
            for (const record of records) {
               const sanitized = sanitizeLeadData(record);
               if (sanitized.isValid) {
-                 const enriched = await enrichRecord(env, ctx, sanitized);
-                 results.push(enriched);
+                 const enriched = await enrichRecord(env, ctx, sanitized, activePipeline);
+                 // Format with mapper to include lineage for testing
+                 const mapped = formatForDeskera([enriched], activePipeline);
+                 results.push(mapped[0]);
               } else {
                  results.push(sanitized);
               }
@@ -1198,7 +1248,7 @@ export default {
         } else {
             // Out-of-band Processing via ctx.waitUntil
             // Processes array in small chunks (e.g. 50 records at a time) through sanitize and enrich
-            ctx.waitUntil(processInBatches(env, source, records, ctx));
+            ctx.waitUntil(processInBatches(env, source, records, ctx, activePipeline));
         }
 
         return new Response(JSON.stringify({ status: 'Accepted', processing_count: records.length }), {
@@ -1536,7 +1586,7 @@ async function hashDedupeKey(key) {
 
 // --- PIPELINE HANDLERS ---
 
-async function processInBatches(env, source, rawRecords, ctx) {
+async function processInBatches(env, source, rawRecords, ctx, activePipeline = null) {
   const BATCH_SIZE = 50;
 
   for (let i = 0; i < rawRecords.length; i += BATCH_SIZE) {
@@ -1550,7 +1600,7 @@ async function processInBatches(env, source, rawRecords, ctx) {
       for (const record of chunk) {
         const sanitized = sanitizeLeadData(record);
         if (sanitized.isValid) {
-          const enriched = await enrichRecord(env, ctx, sanitized);
+          const enriched = await enrichRecord(env, ctx, sanitized, activePipeline);
           if (enriched._enrichment_failed) {
             enrichmentFailCount++;
           }
@@ -1559,7 +1609,7 @@ async function processInBatches(env, source, rawRecords, ctx) {
       }
 
       if (cleanRecords.length > 0) {
-        await processAndDispatch(env, source, cleanRecords, ctx);
+        await processAndDispatch(env, source, cleanRecords, ctx, activePipeline);
         successCount = cleanRecords.length;
       }
 
@@ -1594,7 +1644,7 @@ async function processInBatches(env, source, rawRecords, ctx) {
   }
 }
 
-async function processAndDispatch(env, source, records, ctx) {
+async function processAndDispatch(env, source, records, ctx, activePipeline = null) {
   try {
      // A. Deduplication Check (Using Cloudflare KV)
      const uniqueRecords = [];
@@ -1671,7 +1721,7 @@ async function processAndDispatch(env, source, records, ctx) {
      let coreEndpoint = `${coreRestUrl}/rest/v1/crm_contacts`;
 
      // Align CRM Schema for Core
-     const mappedRecords = formatForCore(uniqueRecords);
+     const mappedRecords = formatForCore(uniqueRecords, activePipeline);
 
      const validRecords = [];
      const invalidRecords = [];
