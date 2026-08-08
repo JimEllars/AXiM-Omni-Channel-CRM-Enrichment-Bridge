@@ -228,6 +228,26 @@ export async function enrichRecord(env, ctx, record, pipelineConfig = null) {
   }
 
   result._lineage.processing_time_ms += (Date.now() - startTime);
+
+  if (env && env.CRM_BRIDGE_ROUTING_RULES && ctx && ctx.waitUntil) {
+    const latency = result._lineage.processing_time_ms;
+    ctx.waitUntil((async () => {
+      try {
+        const currentAvgStr = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:performance:avg_latency_ms');
+        let newAvg = latency;
+        if (currentAvgStr) {
+          const currentAvg = parseFloat(currentAvgStr);
+          if (!isNaN(currentAvg)) {
+             newAvg = currentAvg * 0.9 + latency * 0.1; // Simple Exponential Moving Average
+          }
+        }
+        await env.CRM_BRIDGE_ROUTING_RULES.put('analytics:performance:avg_latency_ms', newAvg.toString());
+      } catch (err) {
+        console.error("Failed to update avg_latency_ms", err);
+      }
+    })());
+  }
+
   return result;
 }
 

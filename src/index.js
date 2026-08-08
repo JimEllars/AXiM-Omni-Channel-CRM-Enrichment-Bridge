@@ -640,10 +640,27 @@ export default {
       try {
         const authHeader = request.headers.get('Authorization');
         const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        const role = request.headers.get('X-AXiM-Role');
         if (authHeader !== `Bearer ${env.AXIM_INTERNAL_KEY}` && internalAuth !== env.AXIM_INTERNAL_KEY) {
           return new Response('Unauthorized', { status: 401 });
         }
+        if (role !== 'superadmin') {
+          return new Response('Forbidden', { status: 403 });
+        }
+
         const rawPayload = await request.json();
+
+        // Strict Schema Validation
+        if (!Array.isArray(rawPayload)) {
+            return new Response(JSON.stringify({ error: 'Payload must be an array of rules' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        for (const rule of rawPayload) {
+            if (!rule.id || !rule.condition || !rule.action) {
+                return new Response(JSON.stringify({ error: 'Invalid rule schema. Each rule must contain id, condition, and action' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+            }
+        }
+
         if (env.CRM_BRIDGE_ROUTING_RULES) {
             await env.CRM_BRIDGE_ROUTING_RULES.put('config:active_pipeline', JSON.stringify(rawPayload));
         }
@@ -962,7 +979,7 @@ export default {
            await writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
         };
 
-        let activePipeline = null;
+        let activePipeline = [];
         if (env.CRM_BRIDGE_ROUTING_RULES) {
             try {
                 const configStr = await env.CRM_BRIDGE_ROUTING_RULES.get('config:active_pipeline');
@@ -971,6 +988,8 @@ export default {
                 }
             } catch (e) {
                 console.error("Failed to load active pipeline config", e);
+                // Fallback logic
+                activePipeline = [{ id: 'default_rule', condition: { field: 'any', operator: 'exists' }, action: { type: 'pass' } }];
             }
         }
 
@@ -1183,7 +1202,7 @@ export default {
 
 
         // Fetch active pipeline configuration
-        let activePipeline = null;
+        let activePipeline = [];
         if (env.CRM_BRIDGE_ROUTING_RULES) {
             try {
                 // Use cache if possible or just fetch. Since we are in workers, KV gets are fast but could be cached
@@ -1193,6 +1212,8 @@ export default {
                 }
             } catch (e) {
                 console.error("Failed to load active pipeline config", e);
+                // Fallback logic
+                activePipeline = [{ id: 'default_rule', condition: { field: 'any', operator: 'exists' }, action: { type: 'pass' } }];
             }
         }
 
