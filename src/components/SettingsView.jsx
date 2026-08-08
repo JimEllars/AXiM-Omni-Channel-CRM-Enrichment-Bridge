@@ -1,7 +1,7 @@
 import { apiFetch } from "../utils/api";
 import React, { useState, useEffect } from 'react';
 import SafeIcon from '../common/SafeIcon';
-import { FiUser, FiBell, FiZap, FiCheckCircle, FiShield, FiTrash2, FiPlus, FiSave, FiKey, FiClock, FiActivity } from 'react-icons/fi';
+import { FiUser, FiBell, FiZap, FiCheckCircle, FiShield, FiTrash2, FiPlus, FiSave, FiKey, FiClock, FiActivity, FiDatabase } from 'react-icons/fi';
 
 export default function SettingsView() {
   const [ips, setIps] = useState([]);
@@ -12,7 +12,25 @@ export default function SettingsView() {
   const [syncStatus, setSyncStatus] = useState('');
   const [errorMsg, setErrorMsg] = useState(null);
   const [ecosystemTtl, setEcosystemTtl] = useState(7);
-  const [ttlSyncStatus, setTtlSyncStatus] = useState('');
+    const [ttlSyncStatus, setTtlSyncStatus] = useState('');
+  const [backupStatus, setBackupStatus] = useState('');
+
+  const handleForceBackup = async () => {
+    setBackupStatus('Initiating Backup...');
+    try {
+      const res = await apiFetch('/v1/management/backup', { method: 'POST' });
+      if (res && res.ok) {
+         setBackupStatus('Backup successfully initiated!');
+         setTimeout(() => setBackupStatus(''), 3000);
+      } else {
+         setBackupStatus('Backup failed to initiate.');
+         setTimeout(() => setBackupStatus(''), 3000);
+      }
+    } catch(err) {
+      setBackupStatus('Error during backup.');
+      setTimeout(() => setBackupStatus(''), 3000);
+    }
+  };
 
   const [scraperKeys, setScraperKeys] = useState([]);
   const [newScraperKey, setNewScraperKey] = useState('');
@@ -33,7 +51,7 @@ export default function SettingsView() {
   const fetchAuditLogs = async () => {
     setAuditLogsLoading(true);
     try {
-      const response = await apiFetch('/v1/management/logs?limit=10', { method: 'GET' });
+      const response = await apiFetch('/v1/management/logs?limit=50', { method: 'GET' });
       if (response && response.ok) {
          const data = await response.json();
          setAuditLogs(data);
@@ -521,7 +539,18 @@ export default function SettingsView() {
           </div>
         </div>
 
-        <div className="bg-gradient-to-br from-indigo-900/20 to-blue-900/20 border border-blue-500/20 rounded-xl p-6">
+        <h4 className="text-white font-bold mb-4 flex items-center gap-2 border-t dark:border-gray-700 pt-4">
+            <SafeIcon icon={FiZap} className="text-blue-400" />
+            Disaster Recovery & Data Export
+          </h4>
+          <div className="mb-6 flex flex-col items-start">
+             <button onClick={handleForceBackup} className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-purple-500/20 mb-2">
+                 <SafeIcon icon={FiDatabase} /> Force Backup to Supabase
+             </button>
+             {backupStatus && <span className="text-xs text-purple-400">{backupStatus}</span>}
+          </div>
+
+          <div className="bg-gradient-to-br from-indigo-900/20 to-blue-900/20 border border-blue-500/20 rounded-xl p-6">
           <div className="flex items-center gap-3 mb-4 text-blue-400">
             <SafeIcon icon={FiZap} />
             <span className="font-black text-xs uppercase">Compute Plan</span>
