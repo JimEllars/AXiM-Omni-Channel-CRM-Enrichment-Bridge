@@ -12,6 +12,7 @@ export default function Dashboard({ stats }) {
   const [edgeAiSuccess, setEdgeAiSuccess] = useState(0);
   const [edgeAiFallback, setEdgeAiFallback] = useState(0);
   const [automatedRecoveries, setAutomatedRecoveries] = useState(0);
+  const [avgLatency, setAvgLatency] = useState(null);
   const [loadingRescues, setLoadingRescues] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
 
@@ -30,11 +31,13 @@ export default function Dashboard({ stats }) {
           setEdgeAiSuccess(data.edge_ai_success || 0);
           setEdgeAiFallback(data.edge_ai_fallback || 0);
           setAutomatedRecoveries(data.automated_success || 0);
+          setAvgLatency(data.avg_latency_ms || 0);
           setErrorMsg(null);
         } else {
           setAiRescues(0);
           setRateLimitDrops(0);
           setAutomatedRecoveries(0);
+          setAvgLatency(0);
           if (response.status === 401) setErrorMsg("Unauthorized: Invalid Session Key for analytics.");
           else if (response.status === 429) setErrorMsg("Rate limited fetching analytics.");
         }
@@ -66,7 +69,7 @@ export default function Dashboard({ stats }) {
         external: loadingRescues ? 0 : edgeAiFallback
       }
     },
-    { title: 'Avg Latency', value: '42ms', icon: FiZap, color: 'text-purple-400', bg: 'bg-purple-400/10', trend: 'STABLE' },
+    { title: 'Avg Latency', value: loadingRescues ? '...' : (avgLatency !== null ? `${Math.round(avgLatency)}ms` : '0ms'), icon: FiZap, color: 'text-purple-400', bg: 'bg-purple-400/10', trend: 'STABLE' },
     { title: 'Blocked Volumetric Attacks', value: loadingRescues ? '...' : (rateLimitDrops || 0), icon: FiShieldOff, color: 'text-rose-400', bg: 'bg-rose-400/10', trend: 'LIVE' },
     { title: 'Automated Recoveries (24h)', value: loadingRescues ? '...' : (automatedRecoveries || 0), icon: FiActivity, color: 'text-emerald-400', bg: 'bg-emerald-400/10', trend: 'AUTO' },
   ];
