@@ -1,117 +1,192 @@
 import re
 
-with open("src/index.js", "r") as f:
+with open('src/index.js', 'r') as f:
     content = f.read()
 
-# Add a POST endpoint `/v1/management/pipeline-config`
-# Insert it after the /v1/management/dlq-dismiss endpoint
-target_endpoint = "    if (url.pathname === '/v1/management/dlq-dismiss' && request.method === 'DELETE') {"
-new_endpoint = """
-    if (url.pathname === '/v1/management/pipeline-config' && request.method === 'POST') {
-      try {
-        const authHeader = request.headers.get('Authorization');
-        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
-        if (authHeader !== `Bearer ${env.AXIM_INTERNAL_KEY}` && internalAuth !== env.AXIM_INTERNAL_KEY) {
-          return new Response('Unauthorized', { status: 401 });
-        }
-        const rawPayload = await request.json();
-        if (env.CRM_BRIDGE_ROUTING_RULES) {
-            await env.CRM_BRIDGE_ROUTING_RULES.put('config:active_pipeline', JSON.stringify(rawPayload));
-        }
-        return new Response(JSON.stringify({ status: 'success', message: 'Pipeline config saved' }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-        });
-      } catch (e) {
-          return new Response('Error saving config: ' + e.message, { status: 500 });
-      }
-    }
+# Patch manual backup handler
+manual_backup_pattern = re.compile(
+    r"""(if \(\!res\.ok\) \{\n\s*console\.error\("Failed to backup configs to Supabase:", res\.status\);\n\s*\})(.*?)""", re.DOTALL)
 
+def replace_manual_backup(match):
+    return """if (!res.ok) {
+                console.error("Failed to backup configs to Supabase:", res.status);
+                ctx.waitUntil(logTelemetry(env, {
+                  telemetry_envelope: {
+                    project_id: "AXIM_CRM_BRIDGE",
+                    environment: env.ENVIRONMENT || "production",
+                    timestamp: new Date().toISOString()
+                  },
+                  event_payload: {
+                    event_type: "backup_sync_failed",
+                    severity: "HIGH",
+                    component_origin: "index.js",
+                    error_message: `[SUPABASE_BACKUP_FAILED] Manual backup failed with status ${res.status}`
+                  }
+                }));
+                return new Response(JSON.stringify({ status: "error", message: "Supabase backup failed" }), { status: 500, headers: { 'Content-Type': 'application/json' }});
+              } else {
+                await env.CRM_BRIDGE_ROUTING_RULES.put('config:last_backup_timestamp', new Date().toISOString());
+              }
 """
-content = content.replace(target_endpoint, new_endpoint + target_endpoint)
 
-
-# Update the `/v1/webhooks/enrich` route to fetch `config:active_pipeline` securely and efficiently
-target_enrich = """        if (rawPayload.test_mode) {
-           let results = [];
-           for (const record of records) {
-              const sanitized = sanitizeLeadData(record);
-              if (sanitized.isValid) {
-                 const enriched = await enrichRecord(env, ctx, sanitized);
-                 results.push(enriched);
+content = content.replace(
+"""              if (!res.ok) {
+                console.error("Failed to backup configs to Supabase:", res.status);
+              }""",
+"""              if (!res.ok) {
+                console.error("Failed to backup configs to Supabase:", res.status);
+                ctx.waitUntil(logTelemetry(env, {
+                  telemetry_envelope: {
+                    project_id: "AXIM_CRM_BRIDGE",
+                    environment: env.ENVIRONMENT || "production",
+                    timestamp: new Date().toISOString()
+                  },
+                  event_payload: {
+                    event_type: "backup_sync_failed",
+                    severity: "HIGH",
+                    component_origin: "index.js",
+                    error_message: `[SUPABASE_BACKUP_FAILED] Manual backup failed with status ${res.status}`
+                  }
+                }));
               } else {
-                 results.push(sanitized);
-              }
-           }
-           return new Response(JSON.stringify(results), {
-               status: 200,
-               headers: { 'Content-Type': 'application/json' }
-           });
-        }"""
-new_enrich = """
-        // Fetch active pipeline configuration
-        let activePipeline = null;
-        if (env.CRM_BRIDGE_ROUTING_RULES) {
-            try {
-                // Use cache if possible or just fetch. Since we are in workers, KV gets are fast but could be cached
-                const configStr = await env.CRM_BRIDGE_ROUTING_RULES.get('config:active_pipeline');
-                if (configStr) {
-                    activePipeline = JSON.parse(configStr);
+                if (env.CRM_BRIDGE_ROUTING_RULES) {
+                  await env.CRM_BRIDGE_ROUTING_RULES.put('config:last_backup_timestamp', new Date().toISOString());
                 }
-            } catch (e) {
-                console.error("Failed to load active pipeline config", e);
-            }
-        }
+              }"""
+)
 
-        if (rawPayload.test_mode) {
-           let results = [];
-           for (const record of records) {
-              const sanitized = sanitizeLeadData(record);
-              if (sanitized.isValid) {
-                 const enriched = await enrichRecord(env, ctx, sanitized, activePipeline);
-                 // Format with mapper to include lineage for testing
-                 const mapped = formatForDeskera([enriched], activePipeline);
-                 results.push(mapped[0]);
-              } else {
-                 results.push(sanitized);
+
+content = content.replace(
+"""          if (!res.ok) {
+            console.error("Failed to backup configs to Supabase:", res.status);
+            // Log telemetry error
+            ctx.waitUntil(logTelemetry(env, {
+              telemetry_envelope: {
+                project_id: "AXIM_CRM_BRIDGE",
+                environment: env.ENVIRONMENT || "production",
+                timestamp: new Date().toISOString()
+              },
+              event_payload: {
+                event_type: "backup_sync_failed",
+                severity: "HIGH",
+                component_origin: "index.js",
+                error_message: `Supabase backup failed with status ${res.status}`
               }
-           }
-           return new Response(JSON.stringify(results), {
-               status: 200,
-               headers: { 'Content-Type': 'application/json' }
-           });
-        }"""
-content = content.replace(target_enrich, new_enrich)
+            }));
+          } else {
+             ctx.waitUntil(logTelemetry(env, {
+              telemetry_envelope: {
+                project_id: "AXIM_CRM_BRIDGE",
+                environment: env.ENVIRONMENT || "production",
+                timestamp: new Date().toISOString()
+              },
+              event_payload: {
+                event_type: "backup_sync_success",
+                severity: "INFO",
+                component_origin: "index.js",
+                error_message: "Configs successfully backed up to Supabase"
+              }
+            }));
+          }""",
+"""          if (!res.ok) {
+            console.error("Failed to backup configs to Supabase:", res.status);
+            // Log telemetry error
+            ctx.waitUntil(logTelemetry(env, {
+              telemetry_envelope: {
+                project_id: "AXIM_CRM_BRIDGE",
+                environment: env.ENVIRONMENT || "production",
+                timestamp: new Date().toISOString()
+              },
+              event_payload: {
+                event_type: "backup_sync_failed",
+                severity: "HIGH",
+                component_origin: "index.js",
+                error_message: `[SUPABASE_BACKUP_FAILED] Supabase backup failed with status ${res.status}`
+              }
+            }));
+          } else {
+            if (env.CRM_BRIDGE_ROUTING_RULES) {
+              await env.CRM_BRIDGE_ROUTING_RULES.put('config:last_backup_timestamp', new Date().toISOString());
+            }
+             ctx.waitUntil(logTelemetry(env, {
+              telemetry_envelope: {
+                project_id: "AXIM_CRM_BRIDGE",
+                environment: env.ENVIRONMENT || "production",
+                timestamp: new Date().toISOString()
+              },
+              event_payload: {
+                event_type: "backup_sync_success",
+                severity: "INFO",
+                component_origin: "index.js",
+                error_message: "Configs successfully backed up to Supabase"
+              }
+            }));
+          }"""
+)
 
-# Ensure batch processing passes activePipeline
-target_batch = "ctx.waitUntil(processInBatches(env, source, records, ctx));"
-new_batch = "ctx.waitUntil(processInBatches(env, source, records, ctx, activePipeline));"
-content = content.replace(target_batch, new_batch)
 
-# Update processInBatches signature
-target_process = "async function processInBatches(env, source, records, ctx) {"
-new_process = "async function processInBatches(env, source, records, ctx, activePipeline = null) {"
-content = content.replace(target_process, new_process)
+content = content.replace(
+"""        ctx.waitUntil(logTelemetry(env, {
+          telemetry_envelope: {
+            project_id: "AXIM_CRM_BRIDGE",
+            environment: env.ENVIRONMENT || "production",
+            timestamp: new Date().toISOString()
+          },
+          event_payload: {
+            event_type: "backup_sync_failed",
+            severity: "HIGH",
+            component_origin: "index.js",
+            error_message: `Supabase backup threw exception: ${err.message}`
+          }
+        }));""",
+"""        ctx.waitUntil(logTelemetry(env, {
+          telemetry_envelope: {
+            project_id: "AXIM_CRM_BRIDGE",
+            environment: env.ENVIRONMENT || "production",
+            timestamp: new Date().toISOString()
+          },
+          event_payload: {
+            event_type: "backup_sync_failed",
+            severity: "HIGH",
+            component_origin: "index.js",
+            error_message: `[SUPABASE_BACKUP_FAILED] Supabase backup threw exception: ${err.message}`
+          }
+        }));"""
+)
 
-# Update enrichRecord call inside processInBatches
-target_enrich_call = "const enriched = await enrichRecord(env, ctx, sanitized);"
-new_enrich_call = "const enriched = await enrichRecord(env, ctx, sanitized, activePipeline);"
-content = content.replace(target_enrich_call, new_enrich_call)
 
-# Ensure processAndDispatch takes activePipeline
-target_dispatch_call = "await processAndDispatch(env, source, cleanRecords, ctx);"
-new_dispatch_call = "await processAndDispatch(env, source, cleanRecords, ctx, activePipeline);"
-content = content.replace(target_dispatch_call, new_dispatch_call)
+# Also add error handling to the manual backup catch
+content = content.replace(
+"""          } catch (err) {
+            console.error("Manual backup failed:", err);
+          }
+        })());
 
-# Update processAndDispatch signature
-target_dispatch = "async function processAndDispatch(env, source, records, ctx) {"
-new_dispatch = "async function processAndDispatch(env, source, records, ctx, activePipeline = null) {"
-content = content.replace(target_dispatch, new_dispatch)
+        return new Response(JSON.stringify({ status: "success", message: "Backup initiated." }), {""",
+"""          } catch (err) {
+            console.error("Manual backup failed:", err);
+            ctx.waitUntil(logTelemetry(env, {
+              telemetry_envelope: {
+                project_id: "AXIM_CRM_BRIDGE",
+                environment: env.ENVIRONMENT || "production",
+                timestamp: new Date().toISOString()
+              },
+              event_payload: {
+                event_type: "backup_sync_failed",
+                severity: "HIGH",
+                component_origin: "index.js",
+                error_message: `[SUPABASE_BACKUP_FAILED] Manual backup threw exception: ${err.message}`
+              }
+            }));
+          }
+        })());
 
-# Update formatForCore call inside processAndDispatch
-target_format = "const mappedRecords = formatForCore(uniqueRecords);"
-new_format = "const mappedRecords = formatForCore(uniqueRecords, activePipeline);"
-content = content.replace(target_format, new_format)
+        return new Response(JSON.stringify({ status: "success", message: "Backup initiated." }), {"""
+)
 
-with open("src/index.js", "w") as f:
+
+
+with open('src/index.js', 'w') as f:
     f.write(content)
+
+print("Done")
