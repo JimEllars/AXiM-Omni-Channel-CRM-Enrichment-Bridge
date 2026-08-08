@@ -81,6 +81,66 @@ export default {
 
 // GET route for DLQ pagination
 
+    // POST route for manual backup
+    if (url.pathname === '/v1/management/backup' && request.method === 'POST') {
+      try {
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        const authHeader = request.headers.get('Authorization');
+
+        let isAuthorized = false;
+        if (authHeader === `Bearer ${env.AXIM_INTERNAL_KEY}` || internalAuth === env.AXIM_INTERNAL_KEY) {
+           isAuthorized = true;
+        }
+        if (!isAuthorized) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        ctx.waitUntil((async () => {
+          try {
+            if (env.CRM_BRIDGE_ROUTING_RULES) {
+              const activePipeline = await env.CRM_BRIDGE_ROUTING_RULES.get('config:active_pipeline', 'json');
+              const scraperApiKeys = await env.CRM_BRIDGE_ROUTING_RULES.get('config:scraper_api_keys', 'json');
+              const ecosystemSubscribers = await env.CRM_BRIDGE_ROUTING_RULES.get('config:ecosystem_subscribers', 'json');
+
+              const payload = {
+                active_pipeline: activePipeline,
+                scraper_api_keys: scraperApiKeys,
+                ecosystem_subscribers: ecosystemSubscribers,
+                timestamp: new Date().toISOString()
+              };
+
+              const supabaseUrl = env.SUPABASE_URL || env.AXIM_CORE_REST_URL || 'https://api.axim.us.com';
+              const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.AXIM_INTERNAL_KEY;
+
+              const res = await fetch(`${supabaseUrl}/rest/v1/bridge_config_backups`, {
+                method: 'POST',
+                headers: {
+                  'apikey': supabaseKey,
+                  'Authorization': `Bearer ${supabaseKey}`,
+                  'Content-Type': 'application/json',
+                  'Prefer': 'return=minimal'
+                },
+                body: JSON.stringify(payload)
+              });
+
+              if (!res.ok) {
+                console.error("Failed to backup configs to Supabase:", res.status);
+              }
+            }
+          } catch (err) {
+            console.error("Manual backup failed:", err);
+          }
+        })());
+
+        return new Response(JSON.stringify({ status: "success", message: "Backup initiated." }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+      }
+    }
+
     // GET route for telemetry logs
     if (url.pathname === '/v1/management/logs' && request.method === 'GET') {
       try {
@@ -1381,10 +1441,51 @@ export default {
 
           if (!res.ok) {
             console.error("Failed to backup configs to Supabase:", res.status);
+            // Log telemetry error
+            ctx.waitUntil(logTelemetry(env, {
+              telemetry_envelope: {
+                project_id: "AXIM_CRM_BRIDGE",
+                environment: env.ENVIRONMENT || "production",
+                timestamp: new Date().toISOString()
+              },
+              event_payload: {
+                event_type: "backup_sync_failed",
+                severity: "HIGH",
+                component_origin: "index.js",
+                error_message: `Supabase backup failed with status ${res.status}`
+              }
+            }));
+          } else {
+             ctx.waitUntil(logTelemetry(env, {
+              telemetry_envelope: {
+                project_id: "AXIM_CRM_BRIDGE",
+                environment: env.ENVIRONMENT || "production",
+                timestamp: new Date().toISOString()
+              },
+              event_payload: {
+                event_type: "backup_sync_success",
+                severity: "INFO",
+                component_origin: "index.js",
+                error_message: "Configs successfully backed up to Supabase"
+              }
+            }));
           }
         }
       } catch (err) {
         console.error("Scheduled backup failed:", err);
+        ctx.waitUntil(logTelemetry(env, {
+          telemetry_envelope: {
+            project_id: "AXIM_CRM_BRIDGE",
+            environment: env.ENVIRONMENT || "production",
+            timestamp: new Date().toISOString()
+          },
+          event_payload: {
+            event_type: "backup_sync_failed",
+            severity: "HIGH",
+            component_origin: "index.js",
+            error_message: `Supabase backup threw exception: ${err.message}`
+          }
+        }));
       }
     })());
 
