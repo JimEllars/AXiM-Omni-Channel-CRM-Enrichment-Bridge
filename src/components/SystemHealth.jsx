@@ -212,7 +212,7 @@ export default function SystemHealth() {
               <p className="text-2xl font-black text-red-400">{analyticsData.cognitive_rescues || 0}</p>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
               <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Pub/Sub Broadcast Success</p>
               <p className="text-2xl font-black text-emerald-400">{analyticsData.broadcast_success || 0}</p>
@@ -222,6 +222,27 @@ export default function SystemHealth() {
               <p className="text-2xl font-black text-red-400">{analyticsData.broadcast_failed || 0}</p>
             </div>
           </div>
+          {analyticsData.nexus_daily && (
+            <div className="grid grid-cols-1 mt-4">
+              <div className="bg-slate-900/50 border border-slate-800 p-5 rounded-xl shadow-lg">
+                <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Daily Internal Sync (Nexus)</p>
+                <div className="flex gap-8">
+                  <div>
+                    <p className="text-[10px] text-slate-600 uppercase font-bold mb-1">Processed</p>
+                    <p className="text-2xl font-black text-blue-400">{analyticsData.nexus_daily.processed || 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-600 uppercase font-bold mb-1">Enriched</p>
+                    <p className="text-2xl font-black text-emerald-400">{analyticsData.nexus_daily.enriched || 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-600 uppercase font-bold mb-1">Last Run</p>
+                    <p className="text-sm font-medium text-slate-300 mt-2">{analyticsData.nexus_daily.last_sweep_timestamp ? new Date(analyticsData.nexus_daily.last_sweep_timestamp).toLocaleString() : 'Never'}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
 

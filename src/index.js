@@ -21,6 +21,7 @@ const corsHeaders = {
 };
 
 export default {
+
   async fetch(request, env, ctx) {
     // Universal CORS Preflight
     if (request.method === 'OPTIONS') {
@@ -828,9 +829,27 @@ export default {
         }
 
         let cognitiveRescues = 0;
+        let edgeAiSuccess = 0;
+        let edgeAiFallback = 0;
+        let nexusDailyProcessed = 0;
+        let nexusDailyEnriched = 0;
+        let lastNexusSweepTimestamp = null;
         if (env.CRM_BRIDGE_ROUTING_RULES) {
           const val = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:ai_rescues:total');
           cognitiveRescues = val ? parseInt(val, 10) : 0;
+
+          const edgeSuccessVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:edge_ai:success_count');
+          edgeAiSuccess = edgeSuccessVal ? parseInt(edgeSuccessVal, 10) : 0;
+          const edgeFallbackVal = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:edge_ai:fallback_count');
+          edgeAiFallback = edgeFallbackVal ? parseInt(edgeFallbackVal, 10) : 0;
+
+          const ndProcessed = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:nexus_daily:processed');
+          nexusDailyProcessed = ndProcessed ? parseInt(ndProcessed, 10) : 0;
+
+          const ndEnriched = await env.CRM_BRIDGE_ROUTING_RULES.get('analytics:nexus_daily:enriched');
+          nexusDailyEnriched = ndEnriched ? parseInt(ndEnriched, 10) : 0;
+
+          lastNexusSweepTimestamp = await env.CRM_BRIDGE_ROUTING_RULES.get('config:last_nexus_sweep_timestamp');
         }
 
         // Mocking config values as requested in instructions
@@ -840,6 +859,11 @@ export default {
           "config:ip_whitelist": ["192.168.1.1", "10.0.0.0/8", "172.16.0.0/12"],
           "alert_count:critical": 0,
           "analytics:ai_rescues:total": cognitiveRescues,
+          "analytics:edge_ai:success_count": edgeAiSuccess,
+          "analytics:edge_ai:fallback_count": edgeAiFallback,
+          "analytics:nexus_daily:processed": nexusDailyProcessed,
+          "analytics:nexus_daily:enriched": nexusDailyEnriched,
+          "config:last_nexus_sweep_timestamp": lastNexusSweepTimestamp,
           "system_status": "Operational",
           "timestamp": new Date().toISOString()
         };
