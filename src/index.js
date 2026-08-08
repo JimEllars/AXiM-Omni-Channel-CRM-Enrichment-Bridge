@@ -80,6 +80,53 @@ export default {
 
 
 // GET route for DLQ pagination
+
+    // GET route for telemetry logs
+    if (url.pathname === '/v1/management/logs' && request.method === 'GET') {
+      try {
+        const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
+        const authHeader = request.headers.get('Authorization');
+
+        let isAuthorized = false;
+        if (authHeader === `Bearer ${env.AXIM_INTERNAL_KEY}` || internalAuth === env.AXIM_INTERNAL_KEY) {
+           isAuthorized = true;
+        }
+        if (!isAuthorized) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        const limit = parseInt(url.searchParams.get('limit')) || 50;
+        const coreRestUrl = env.AXIM_CORE_REST_URL || 'https://api.axim.us.com';
+
+        // Fetch from the telemetry_events table directly
+        const fetchRes = await fetch(`${coreRestUrl}/rest/v1/telemetry_events?select=*&limit=${limit}&order=timestamp.desc`, {
+          method: 'GET',
+          headers: {
+            'apikey': env.AXIM_INTERNAL_KEY,
+            'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}`
+          }
+        });
+
+        if (!fetchRes.ok) {
+          return new Response(JSON.stringify({ error: 'Failed to fetch logs', status: fetchRes.status }), {
+            status: fetchRes.status,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
+        const logs = await fetchRes.json();
+        return new Response(JSON.stringify(logs), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     if (url.pathname === '/v1/management/dlq' && request.method === 'GET') {
       try {
         const internalAuth = request.headers.get('X-AXiM-Internal-Auth');
@@ -1302,6 +1349,45 @@ export default {
 
   // SCHEDULED: Cron Trigger Handler for Database Sweeps
   async scheduled(event, env, ctx) {
+
+    // Phase 1: Disaster Recovery Archiving
+    ctx.waitUntil((async () => {
+      try {
+        if (env.CRM_BRIDGE_ROUTING_RULES) {
+          const activePipeline = await env.CRM_BRIDGE_ROUTING_RULES.get('config:active_pipeline', 'json');
+          const scraperApiKeys = await env.CRM_BRIDGE_ROUTING_RULES.get('config:scraper_api_keys', 'json');
+          const ecosystemSubscribers = await env.CRM_BRIDGE_ROUTING_RULES.get('config:ecosystem_subscribers', 'json');
+
+          const payload = {
+            active_pipeline: activePipeline,
+            scraper_api_keys: scraperApiKeys,
+            ecosystem_subscribers: ecosystemSubscribers,
+            timestamp: new Date().toISOString()
+          };
+
+          const supabaseUrl = env.SUPABASE_URL || env.AXIM_CORE_REST_URL || 'https://api.axim.us.com';
+          const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.AXIM_INTERNAL_KEY;
+
+          const res = await fetch(`${supabaseUrl}/rest/v1/bridge_config_backups`, {
+            method: 'POST',
+            headers: {
+              'apikey': supabaseKey,
+              'Authorization': `Bearer ${supabaseKey}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=minimal'
+            },
+            body: JSON.stringify(payload)
+          });
+
+          if (!res.ok) {
+            console.error("Failed to backup configs to Supabase:", res.status);
+          }
+        }
+      } catch (err) {
+        console.error("Scheduled backup failed:", err);
+      }
+    })());
+
 
     const coreRestUrl = env.AXIM_CORE_REST_URL || 'https://api.axim.us.com';
     const dlqEndpoint = `${coreRestUrl}/rest/v1/dlq_records`;
