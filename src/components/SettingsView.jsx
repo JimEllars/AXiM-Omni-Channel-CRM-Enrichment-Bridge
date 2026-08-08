@@ -1,7 +1,7 @@
 import { apiFetch } from "../utils/api";
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import SafeIcon from '../common/SafeIcon';
-import { FiUser, FiBell, FiZap, FiCheckCircle, FiShield, FiTrash2, FiPlus, FiSave, FiKey } from 'react-icons/fi';
+import { FiUser, FiBell, FiZap, FiCheckCircle, FiShield, FiTrash2, FiPlus, FiSave, FiKey, FiClock, FiActivity } from 'react-icons/fi';
 
 export default function SettingsView() {
   const [ips, setIps] = useState([]);
@@ -24,6 +24,32 @@ export default function SettingsView() {
 
   const [newAgentKey, setNewAgentKey] = useState('');
   const [keyStatus, setKeyStatus] = useState('');
+
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditLogsLoading, setAuditLogsLoading] = useState(false);
+
+
+
+  const fetchAuditLogs = async () => {
+    setAuditLogsLoading(true);
+    try {
+      const response = await apiFetch('/v1/management/logs?limit=10', { method: 'GET' });
+      if (response && response.ok) {
+         const data = await response.json();
+         setAuditLogs(data);
+      } else if (response && Array.isArray(response)) {
+         setAuditLogs(response);
+      }
+    } catch (err) {
+      console.error("Failed to fetch audit logs:", err);
+    } finally {
+      setAuditLogsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAuditLogs();
+  }, []);
 
   const generateAndProvisionKey = async () => {
     setKeyStatus('Generating...');
@@ -505,6 +531,52 @@ export default function SettingsView() {
           <div className="flex items-center gap-2 text-emerald-400 text-[10px] font-bold">
             <SafeIcon icon={FiCheckCircle} />
             SLA: 99.99% GUARANTEED
+          </div>
+        </div>
+
+        <div className="bg-slate-900/50 rounded-xl border border-slate-800 overflow-hidden shadow-2xl mt-8">
+          <div className="px-6 py-4 border-b border-slate-800 bg-slate-800/20">
+            <h3 className="text-white font-medium flex items-center gap-2">
+              <SafeIcon icon={FiActivity} className="text-blue-400" />
+              System Audit Logs
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">
+              Recent anomaly logs and telemetry warnings.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-slate-300">
+              <thead className="bg-slate-800/50 text-slate-400 text-xs">
+                <tr>
+                  <th className="px-6 py-3 font-medium">Timestamp</th>
+                  <th className="px-6 py-3 font-medium">Event Type</th>
+                  <th className="px-6 py-3 font-medium">Message</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/50">
+                {auditLogsLoading ? (
+                  <tr>
+                    <td colSpan="3" className="px-6 py-4 text-center text-slate-500 text-xs italic">Loading logs...</td>
+                  </tr>
+                ) : auditLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan="3" className="px-6 py-4 text-center text-slate-500 text-xs italic">No recent logs found.</td>
+                  </tr>
+                ) : (
+                  auditLogs.map((log, idx) => (
+                    <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-400">
+                        <div className="flex items-center gap-1"><SafeIcon icon={FiClock} className="text-slate-600" /> {new Date(log.timestamp || log.time || log.created_at).toLocaleString()}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-xs">
+                        <span className="px-2 py-0.5 rounded font-bold border text-orange-500 bg-orange-500/10 border-orange-500/20">{log.event_type || log.type || 'UNKNOWN'}</span>
+                      </td>
+                      <td className="px-6 py-4 text-xs">{log.message || log.msg || log.error_message || 'N/A'}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
