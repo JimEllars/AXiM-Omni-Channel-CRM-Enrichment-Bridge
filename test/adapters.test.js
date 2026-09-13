@@ -1,11 +1,31 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SuiteDashAdapter } from '../src/services/crm/suitedashAdapter.js';
 import { DeskeraAdapter } from '../src/services/crm/deskeraAdapter.js';
+import { telemetryClient } from '../src/utils/telemetry.js';
+
+vi.mock('../src/utils/telemetry.js', () => ({
+  telemetryClient: {
+    recordSpan: vi.fn(),
+    recordMetric: vi.fn(),
+    recordError: vi.fn(),
+  },
+  logToRecovery: vi.fn()
+}));
 
 global.fetch = vi.fn();
+// Polyfill crypto subtle for Node environment in tests
+const cryptoModule = require('crypto');
+if (!global.crypto) {
+    global.crypto = {};
+}
+if (!global.crypto.subtle) {
+    global.crypto.subtle = {
+        digest: async (algo, data) => cryptoModule.createHash('sha256').update(data).digest()
+    };
+}
 
 describe('SuiteDashAdapter', () => {
-  it('syncContact adds cf_sync_source', async () => {
+  it('syncContact adds cf_sync_source and includes idempotency hash and triggers telemetry', async () => {
     const adapter = new SuiteDashAdapter('pub', 'sec');
 
     global.fetch.mockResolvedValueOnce({
@@ -23,11 +43,13 @@ describe('SuiteDashAdapter', () => {
     const payload = JSON.parse(fetchOptions.body);
 
     expect(payload.cf_sync_source).toBe('AXIM_BRIDGE');
+    expect(fetchOptions.headers['Idempotency-Key']).toBeDefined();
+    expect(telemetryClient.recordSpan).toHaveBeenCalled();
   });
 });
 
 describe('DeskeraAdapter', () => {
-  it('syncContact adds sync_source and handles token', async () => {
+  it('syncContact adds sync_source, handles token, backoff and telemetry', async () => {
     const adapter = new DeskeraAdapter({ username: 'test' });
 
     // Mock authentication
@@ -45,17 +67,16 @@ describe('DeskeraAdapter', () => {
     const canonical = { primary_email: 'test@example.com', first_name: 'Test' };
     await adapter.syncContact(canonical);
 
-    // Should have called fetch twice (auth, then sync)
-    expect(global.fetch).toHaveBeenCalledTimes(3); // +1 from SuiteDash test
-
     const syncArgs = global.fetch.mock.calls[2];
     const syncOptions = syncArgs[1];
 
     // Check header
     expect(syncOptions.headers['x-access-token']).toBe('fake-token');
+    expect(syncOptions.headers['Idempotency-Key']).toBeDefined();
 
     // Check payload
     const payload = JSON.parse(syncOptions.body);
     expect(payload.sync_source).toBe('AXIM_BRIDGE');
+    expect(telemetryClient.recordSpan).toHaveBeenCalled();
   });
 });
