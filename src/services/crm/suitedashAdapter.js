@@ -1,12 +1,20 @@
-// SuiteDash Adapter
+import { telemetryClient, logToRecovery } from '../../utils/telemetry.js';
+
+const hashString = async (str) => {
+  const msgUint8 = new TextEncoder().encode(str);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
 export class SuiteDashAdapter {
   constructor(publicId, secretKey) {
     this.publicId = publicId;
     this.secretKey = secretKey;
-    this.baseUrl = 'https://app.suitedash.com/api/v1'; // Assuming generic API endpoint
+    this.baseUrl = 'https://app.suitedash.com/api/v1';
     this.metaCache = null;
     this.lastRequestTime = 0;
-    this.minRequestInterval = 1000 / 0.40; // Leaky bucket: <= 0.40 requests/sec => 2500ms
+    this.minRequestInterval = 1000 / 0.40;
   }
 
   async _enforceRateLimit() {
@@ -19,7 +27,7 @@ export class SuiteDashAdapter {
     this.lastRequestTime = Date.now();
   }
 
-  async _request(method, endpoint, body = null) {
+  async _request(method, endpoint, body = null, idempotencyKey = null) {
     await this._enforceRateLimit();
 
     const headers = {
@@ -28,23 +36,33 @@ export class SuiteDashAdapter {
       'Content-Type': 'application/json',
     };
 
-    const options = {
-      method,
-      headers,
-    };
+    if (idempotencyKey) {
+        headers['Idempotency-Key'] = idempotencyKey;
+    }
 
+    const options = { method, headers };
     if (body) {
       options.body = JSON.stringify(body);
     }
 
-    const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+    const start = Date.now();
+    try {
+      const response = await fetch(`${this.baseUrl}${endpoint}`, options);
 
-    // Check if it's a 404, we might want to handle it specifically for PUT requests
-    if (!response.ok && response.status !== 404) {
-       throw new Error(`SuiteDash API Error: ${response.status} ${response.statusText}`);
+      telemetryClient.recordSpan(`SuiteDash_${method}`, Date.now() - start, {
+        endpoint,
+        status: response.status
+      });
+
+      if (!response.ok && response.status !== 404) {
+         throw new Error(`SuiteDash API Error: ${response.status} ${response.statusText}`);
+      }
+
+      return response;
+    } catch (error) {
+      telemetryClient.recordError({ context: `SuiteDash_${method}`, endpoint }, error);
+      throw error;
     }
-
-    return response;
   }
 
   async fetchMetaSchema() {
@@ -52,6 +70,7 @@ export class SuiteDashAdapter {
       return this.metaCache;
     }
 
+    const start = Date.now();
     try {
       const [contactRes, companyRes] = await Promise.all([
         this._request('GET', '/contact/meta'),
@@ -61,35 +80,44 @@ export class SuiteDashAdapter {
       const contactMeta = contactRes.ok ? await contactRes.json() : null;
       const companyMeta = companyRes.ok ? await companyRes.json() : null;
 
+      telemetryClient.recordSpan('SuiteDash_FetchMeta', Date.now() - start, {
+        contact_ok: contactRes.ok,
+        company_ok: companyRes.ok
+      });
+
       this.metaCache = { contact: contactMeta, company: companyMeta };
       return this.metaCache;
     } catch (error) {
+      telemetryClient.recordError({ context: 'SuiteDash_FetchMeta' }, error);
       console.error('Failed to fetch SuiteDash meta schema:', error);
       throw error;
     }
   }
 
   async syncContact(canonicalContact) {
-    // Determine the external ID if available in the mapping (would normally be passed in or looked up)
-    // For this simulation, we'll assume it's part of canonicalContact if it exists, or we use primary_email
+    const updateTimestamp = canonicalContact.updated_at || new Date().toISOString();
     const externalId = canonicalContact.external_id || canonicalContact.primary_email;
+    const idempotencyKey = await hashString(`${externalId}-${updateTimestamp}`);
 
     const payload = {
       ...canonicalContact,
-      cf_sync_source: 'AXIM_BRIDGE' // Eliminate echo loops
+      cf_sync_source: 'AXIM_BRIDGE'
     };
 
+    const start = Date.now();
     try {
       if (externalId) {
-        // Cache-first lookup / update
-        const putRes = await this._request('PUT', `/contact/${encodeURIComponent(externalId)}`, payload);
+        const putRes = await this._request('PUT', `/contact/${encodeURIComponent(externalId)}`, payload, idempotencyKey);
 
         if (putRes.ok) {
+          telemetryClient.recordMetric('suitedash.sync_contact.update.success', 1, { externalId });
+          telemetryClient.recordSpan('SuiteDash_SyncContact_Update', Date.now() - start, { status: putRes.status });
           return await putRes.json();
         } else if (putRes.status === 404) {
-          // Fallback to POST
-          const postRes = await this._request('POST', '/contact', payload);
+          const postRes = await this._request('POST', '/contact', payload, idempotencyKey);
           if (postRes.ok) {
+             telemetryClient.recordMetric('suitedash.sync_contact.create.success', 1, { fallback: true });
+             telemetryClient.recordSpan('SuiteDash_SyncContact_CreateFallback', Date.now() - start, { status: postRes.status });
              return await postRes.json();
           }
           throw new Error(`Failed to create contact after 404 fallback: ${postRes.status}`);
@@ -97,15 +125,23 @@ export class SuiteDashAdapter {
            throw new Error(`Failed to update contact: ${putRes.status}`);
         }
       } else {
-        // No ID, just create
-        const postRes = await this._request('POST', '/contact', payload);
+        const postRes = await this._request('POST', '/contact', payload, idempotencyKey);
         if (postRes.ok) {
+           telemetryClient.recordMetric('suitedash.sync_contact.create.success', 1, { externalId: 'none' });
+           telemetryClient.recordSpan('SuiteDash_SyncContact_Create', Date.now() - start, { status: postRes.status });
            return await postRes.json();
         }
         throw new Error(`Failed to create contact: ${postRes.status}`);
       }
     } catch (error) {
+      telemetryClient.recordMetric('suitedash.sync_contact.error', 1, {
+         externalId: externalId || 'unknown'
+      });
+      telemetryClient.recordError({ context: 'SuiteDash_SyncContact' }, error);
       console.error('Error syncing contact to SuiteDash:', error);
+
+      logToRecovery({}, 'SuiteDashAdapter', error.message, canonicalContact);
+
       throw error;
     }
   }
