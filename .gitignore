@@ -23,3 +23,11 @@ dist-ssr
 *.sln
 *.sw?
 .env
+# Stepping scripts and temp files
+patch_*.py
+fix_*.py
+initiate.py
+submit.py
+dummy.js
+dummy.py
+__pycache__/
