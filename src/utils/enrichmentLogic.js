@@ -1,3 +1,4 @@
+import { resolveConflict } from "./conflictResolver.js";
 import { logTelemetry, logToRecovery } from './telemetry.js';
 
 /**

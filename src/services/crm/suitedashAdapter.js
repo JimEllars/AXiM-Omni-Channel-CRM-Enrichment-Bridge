@@ -1,4 +1,6 @@
 import { telemetryClient, logToRecovery } from '../../utils/telemetry.js';
+import { resolveConflict } from '../../utils/conflictResolver.js';
+import { normalizeToCanonical } from '../../models/canonicalSchema.js';
 
 const hashString = async (str) => {
   const msgUint8 = new TextEncoder().encode(str);
@@ -8,13 +10,14 @@ const hashString = async (str) => {
 };
 
 export class SuiteDashAdapter {
-  constructor(publicId, secretKey) {
+  constructor(publicId, secretKey, env) {
     this.publicId = publicId;
     this.secretKey = secretKey;
+    this.env = env;
     this.baseUrl = 'https://app.suitedash.com/api/v1';
     this.metaCache = null;
     this.lastRequestTime = 0;
-    this.minRequestInterval = 1000 / 0.40;
+    this.minRequestInterval = 1000; // max 60 requests/minute
   }
 
   async _enforceRateLimit() {
@@ -27,7 +30,7 @@ export class SuiteDashAdapter {
     this.lastRequestTime = Date.now();
   }
 
-  async _request(method, endpoint, body = null, idempotencyKey = null) {
+  async _request(method, endpoint, body = null, idempotencyKey = null, attempt = 0) {
     await this._enforceRateLimit();
 
     const headers = {
@@ -54,12 +57,30 @@ export class SuiteDashAdapter {
         status: response.status
       });
 
+      if (response.status === 429 || response.status === 503) {
+        if (attempt < 5) {
+            const retryAfter = response.headers.get('Retry-After');
+            let delay = retryAfter ? parseInt(retryAfter) * 1000 : 1000 * Math.pow(2, attempt) + Math.random() * 1000;
+            delay = Math.min(delay, 60000);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return this._request(method, endpoint, body, idempotencyKey, attempt + 1);
+        } else {
+            throw new Error(`Rate limit exceeded after max retries: ${response.status}`);
+        }
+      }
+
       if (!response.ok && response.status !== 404) {
          throw new Error(`SuiteDash API Error: ${response.status} ${response.statusText}`);
       }
 
       return response;
     } catch (error) {
+      if (attempt < 5) {
+          let delay = 1000 * Math.pow(2, attempt) + Math.random() * 1000;
+          delay = Math.min(delay, 60000);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return this._request(method, endpoint, body, idempotencyKey, attempt + 1);
+      }
       telemetryClient.recordError({ context: `SuiteDash_${method}`, endpoint }, error);
       throw error;
     }
@@ -94,15 +115,40 @@ export class SuiteDashAdapter {
     }
   }
 
+  toCanonical(externalPayload) {
+      return normalizeToCanonical(externalPayload, 'SUITEDASH');
+  }
+
+  fromCanonical(canonicalRecord) {
+      return {
+          ...canonicalRecord,
+          cf_sync_source: 'AXIM_BRIDGE'
+      };
+  }
+
+  diff(existingRecord, newCanonical) {
+      const patch = {};
+      for (const key in newCanonical) {
+          if (existingRecord[key] !== newCanonical[key]) {
+              patch[key] = newCanonical[key];
+          }
+      }
+      return patch;
+  }
+
   async syncContact(canonicalContact) {
     const updateTimestamp = canonicalContact.updated_at || new Date().toISOString();
     const externalId = canonicalContact.external_id || canonicalContact.primary_email;
     const idempotencyKey = await hashString(`${externalId}-${updateTimestamp}`);
+    const recordHash = await hashString(JSON.stringify(canonicalContact));
+    const fingerprintKey = `fingerprint:suitedash:${recordHash}`;
 
-    const payload = {
-      ...canonicalContact,
-      cf_sync_source: 'AXIM_BRIDGE'
-    };
+    // Record fingerprint in KV to suppress echo loops
+    if (this.env && this.env.LEAD_KV) {
+        await this.env.LEAD_KV.put(fingerprintKey, 'true', { expirationTtl: 300 }); // 5 minutes
+    }
+
+    const payload = this.fromCanonical(canonicalContact);
 
     const start = Date.now();
     try {
@@ -140,9 +186,23 @@ export class SuiteDashAdapter {
       telemetryClient.recordError({ context: 'SuiteDash_SyncContact' }, error);
       console.error('Error syncing contact to SuiteDash:', error);
 
-      logToRecovery({}, 'SuiteDashAdapter', error.message, canonicalContact);
+      logToRecovery(this.env, 'SuiteDashAdapter', error.message, canonicalContact);
 
       throw error;
     }
+  }
+
+  async checkInboundEcho(webhookPayload) {
+      const canonical = this.toCanonical(webhookPayload);
+      const recordHash = await hashString(JSON.stringify(canonical));
+      const fingerprintKey = `fingerprint:suitedash:${recordHash}`;
+
+      if (this.env && this.env.LEAD_KV) {
+          const exists = await this.env.LEAD_KV.get(fingerprintKey);
+          if (exists) {
+              return true; // Echo detected
+          }
+      }
+      return false; // Not an echo
   }
 }

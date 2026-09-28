@@ -26,7 +26,7 @@ if (!global.crypto.subtle) {
 
 describe('SuiteDashAdapter', () => {
   it('syncContact adds cf_sync_source and includes idempotency hash and triggers telemetry', async () => {
-    const adapter = new SuiteDashAdapter('pub', 'sec');
+    const adapter = new SuiteDashAdapter('pub', 'sec', { LEAD_KV: { put: vi.fn() } });
 
     global.fetch.mockResolvedValueOnce({
       ok: true,
@@ -46,11 +46,41 @@ describe('SuiteDashAdapter', () => {
     expect(fetchOptions.headers['Idempotency-Key']).toBeDefined();
     expect(telemetryClient.recordSpan).toHaveBeenCalled();
   });
+
+  it('toCanonical correctly maps fields', () => {
+      const adapter = new SuiteDashAdapter('pub', 'sec');
+      const payload = { email: 'test@example.com', first_name: 'Test' };
+      const canonical = adapter.toCanonical(payload);
+      expect(canonical.primary_email).toBe('test@example.com');
+  });
+
+  it('fromCanonical correctly maps fields', () => {
+      const adapter = new SuiteDashAdapter('pub', 'sec');
+      const canonical = { primary_email: 'test@example.com', first_name: 'Test' };
+      const payload = adapter.fromCanonical(canonical);
+      expect(payload.primary_email).toBe('test@example.com');
+      expect(payload.cf_sync_source).toBe('AXIM_BRIDGE');
+  });
+
+  it('diff calculates minimal patch', () => {
+      const adapter = new SuiteDashAdapter('pub', 'sec');
+      const existing = { first_name: 'Test', last_name: 'Old' };
+      const incoming = { first_name: 'Test', last_name: 'New' };
+      const patch = adapter.diff(existing, incoming);
+      expect(patch).toEqual({ last_name: 'New' });
+  });
+
+  it('checkInboundEcho works', async () => {
+      const kv = { get: vi.fn().mockResolvedValue('true') };
+      const adapter = new SuiteDashAdapter('pub', 'sec', { LEAD_KV: kv });
+      const echo = await adapter.checkInboundEcho({ email: 'test@example.com' });
+      expect(echo).toBe(true);
+  });
 });
 
 describe('DeskeraAdapter', () => {
   it('syncContact adds sync_source, handles token, backoff and telemetry', async () => {
-    const adapter = new DeskeraAdapter({ username: 'test' });
+    const adapter = new DeskeraAdapter({ username: 'test' }, { LEAD_KV: { put: vi.fn() } });
 
     // Mock authentication
     global.fetch.mockResolvedValueOnce({
@@ -78,5 +108,36 @@ describe('DeskeraAdapter', () => {
     const payload = JSON.parse(syncOptions.body);
     expect(payload.sync_source).toBe('AXIM_BRIDGE');
     expect(telemetryClient.recordSpan).toHaveBeenCalled();
+  });
+
+  it('toCanonical correctly maps fields', () => {
+      const adapter = new DeskeraAdapter('pub', 'sec');
+      const payload = { email: 'test@example.com', first_name: 'Test' };
+      const canonical = adapter.toCanonical(payload);
+      expect(canonical.primary_email).toBe('test@example.com');
+  });
+
+  it('fromCanonical correctly maps fields', () => {
+      const adapter = new DeskeraAdapter('pub', 'sec');
+      const canonical = { primary_email: 'test@example.com', first_name: 'Test' };
+      const payload = adapter.fromCanonical(canonical);
+      expect(payload.primary_email).toBe('test@example.com');
+      expect(payload.sync_source).toBe('AXIM_BRIDGE');
+  });
+
+  it('diff calculates minimal patch', () => {
+      const adapter = new DeskeraAdapter('pub', 'sec');
+      const existing = { first_name: 'Test', last_name: 'Old' };
+      const incoming = { first_name: 'Test', last_name: 'New' };
+      const patch = adapter.diff(existing, incoming);
+      expect(patch).toEqual({ last_name: 'New' });
+  });
+
+  it('checkInboundEcho works', async () => {
+      const kv = { get: vi.fn().mockResolvedValue('true') };
+      // Passing environment as the second argument to match DeskeraAdapter constructor: constructor(credentials, env)
+      const adapter = new DeskeraAdapter({ username: 'test' }, { LEAD_KV: kv });
+      const echo = await adapter.checkInboundEcho({ email: 'test@example.com' });
+      expect(echo).toBe(true);
   });
 });
