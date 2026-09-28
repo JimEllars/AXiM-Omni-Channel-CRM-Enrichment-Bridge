@@ -4,6 +4,10 @@ class ObservabilityClient {
     this.maxBatchSize = 20;
     this.flushIntervalMs = 5000;
     this.timer = null;
+
+    // Ring buffer for local metrics
+    this.ringBuffer = [];
+    this.ringBufferLimit = 500;
   }
 
   _startTimer() {
@@ -13,11 +17,21 @@ class ObservabilityClient {
   }
 
   _enqueue(event) {
-    this.queue.push({
+    const timestamp = Date.now();
+    const eventObj = {
       ...event,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(timestamp).toISOString(),
+      timestampMs: timestamp,
       idempotency_key: `evt_crm_${crypto.randomUUID()}`
-    });
+    };
+
+    this.queue.push(eventObj);
+
+    // Add to ring buffer
+    this.ringBuffer.unshift(eventObj);
+    if (this.ringBuffer.length > this.ringBufferLimit) {
+      this.ringBuffer.pop();
+    }
 
     if (this.queue.length >= this.maxBatchSize) {
       this.flush();
@@ -52,6 +66,40 @@ class ObservabilityClient {
     });
   }
 
+  recordEvent(eventType, message, severity = 'INFO', metadata = {}) {
+      this._enqueue({
+          type: 'event',
+          eventType,
+          severity,
+          message,
+          ...metadata
+      });
+  }
+
+  getRecentMetrics(limit = 50) {
+      const recent = this.ringBuffer.slice(0, limit);
+
+      const now = Date.now();
+      const oneMinuteAgo = now - 60000;
+
+      const lastMinuteEvents = this.ringBuffer.filter(e => e.timestampMs >= oneMinuteAgo);
+
+      const throughput = lastMinuteEvents.length / 60; // ops per sec over last min
+
+      const errorEvents = lastMinuteEvents.filter(e => e.type === 'error' || e.severity === 'CRITICAL' || e.severity === 'HIGH' || e.eventType === 'sync_failure');
+      const errorRate = lastMinuteEvents.length > 0 ? (errorEvents.length / lastMinuteEvents.length) * 100 : 0;
+
+      const spans = lastMinuteEvents.filter(e => e.type === 'span' && e.durationMs != null);
+      const avgLatency = spans.length > 0 ? spans.reduce((sum, e) => sum + e.durationMs, 0) / spans.length : 0;
+
+      return {
+          events: recent,
+          throughput: throughput.toFixed(2),
+          errorRate: errorRate.toFixed(2),
+          avgLatency: avgLatency.toFixed(2)
+      };
+  }
+
   async flush() {
     if (this.queue.length === 0) return;
 
@@ -69,12 +117,11 @@ class ObservabilityClient {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // Optional: Add auth token if required
         },
         body: JSON.stringify({ events: batch })
-      }).catch(err => console.warn('Telemetry flush failed quietly:', err)); // Fail safely
+      }).catch(err => console.warn('Telemetry flush failed quietly:', err));
     } catch (error) {
-      console.warn('Telemetry delivery failed quietly:', error); // Fail safely
+      console.warn('Telemetry delivery failed quietly:', error);
     }
   }
 }
@@ -84,64 +131,67 @@ export const telemetryClient = new ObservabilityClient();
 export async function logTelemetry(env, payloadOrEventType, severity, message) {
   let payload;
   let eventTypeStr = payloadOrEventType;
-  let severityStr = severity;
-  let messageStr = message;
+  let severityStr = severity || 'INFO';
+  let messageStr = message || '';
 
   if (typeof payloadOrEventType === 'object') {
     payload = payloadOrEventType;
     eventTypeStr = payload?.event_payload?.event_type || 'unknown_event';
-    severityStr = payload?.event_payload?.severity || 'info';
+    severityStr = payload?.event_payload?.severity || 'INFO';
     messageStr = payload?.event_payload?.error_message || '';
-    if (payload.telemetry_envelope && !payload.telemetry_envelope.idempotency_key) {
-        payload.telemetry_envelope.idempotency_key = `evt_crm_${crypto.randomUUID()}`;
-    }
-  } else {
-    payload = {
-      telemetry_envelope: {
-        project_id: "AXIM_CRM_BRIDGE",
-        environment: env?.ENVIRONMENT || "production",
-        timestamp: new Date().toISOString(),
-        idempotency_key: `evt_crm_${crypto.randomUUID()}`
-      },
-      event_payload: {
-        event_type: eventTypeStr,
-        severity: severityStr,
-        component_origin: "worker_pipeline",
-        error_message: messageStr
-      }
-    };
   }
 
-  telemetryClient.recordError(eventTypeStr, messageStr);
+  telemetryClient.recordEvent(eventTypeStr, messageStr, severityStr);
 
-  try {
-    fetch('https://api.axim.us.com/v1/telemetry/ingest', {
-      method: 'POST',
-      headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${env?.AXIM_INTERNAL_KEY || ''}`
-      },
-      body: JSON.stringify(payload)
-    }).catch(err => console.error("Telemetry Delivery Failure:", err));
-  } catch (error) {
-    console.error("Telemetry Processing Error:", error);
+  // In a Worker env, we don't have direct access to telemetryClient's fetch logic easily
+  // if it requires meta.env, so we might want to also push to the central AXiM ingest.
+  if (env && env.AXIM_INTERNAL_KEY) {
+      try {
+          const apiPayload = payload || {
+            telemetry_envelope: {
+              project_id: "AXIM_CRM_BRIDGE",
+              environment: env?.ENVIRONMENT || "production",
+              timestamp: new Date().toISOString(),
+              idempotency_key: `evt_crm_${crypto.randomUUID()}`
+            },
+            event_payload: {
+              event_type: eventTypeStr,
+              severity: severityStr,
+              component_origin: "worker_pipeline",
+              error_message: messageStr
+            }
+          };
+
+        fetch('https://api.axim.us.com/v1/telemetry/ingest', {
+          method: 'POST',
+          headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${env.AXIM_INTERNAL_KEY}`
+          },
+          body: JSON.stringify(apiPayload)
+        }).catch(err => console.error("Telemetry Delivery Failure:", err));
+      } catch (error) {
+        console.error("Telemetry Processing Error:", error);
+      }
   }
 }
 
 export async function logToRecovery(env, source, reason, payload) {
   try {
-    const coreRestUrl = env?.AXIM_CORE_REST_URL || 'https://api.axim.us.com';
+    const coreRestUrl = (env && env.AXIM_CORE_REST_URL) || 'https://api.axim.us.com';
     const endpoint = `${coreRestUrl}/rest/v1/dlq_records`;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+    const apiKey = (env && env.AXIM_INTERNAL_KEY) || '';
+
     await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'apikey': env?.AXIM_INTERNAL_KEY || '',
-        'Authorization': `Bearer ${env?.AXIM_INTERNAL_KEY || ''}`
+        'apikey': apiKey,
+        'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
         source: source,
@@ -157,6 +207,8 @@ export async function logToRecovery(env, source, reason, payload) {
 }
 
 export function getMetrics() {
+  const recent = telemetryClient.getRecentMetrics();
+
   return {
     automated_success: 120,
     edge_ai_success: 95,
@@ -169,8 +221,9 @@ export function getMetrics() {
       enriched: 480,
       last_sweep_timestamp: new Date().toISOString()
     },
-    latency: '45ms',
-    errorRate: '0.1%',
-    queueDepth: 5
+    latency: `${recent.avgLatency}ms`,
+    errorRate: `${recent.errorRate}%`,
+    queueDepth: telemetryClient.queue.length,
+    throughput: recent.throughput
   };
 }
