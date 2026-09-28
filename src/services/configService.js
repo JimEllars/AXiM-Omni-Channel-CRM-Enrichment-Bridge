@@ -42,7 +42,12 @@ export const configService = {
         return parsedVal;
     } catch (error) {
         console.warn('Failed to read config from Sheets, using default', error);
-        return defaultValue;
+
+        // Validate fallback defaults from canonicalSchema.js
+        const { getCanonicalDefault } = await import('../models/canonicalSchema.js').catch(() => ({ getCanonicalDefault: () => defaultValue }));
+        const fallback = getCanonicalDefault ? getCanonicalDefault(key) : defaultValue;
+
+        return fallback !== undefined ? fallback : defaultValue;
     }
   },
 

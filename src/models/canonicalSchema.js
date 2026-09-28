@@ -127,3 +127,11 @@ export const testExports = {
   computeStateHash,
   extractApexDomain
 };
+
+export function getCanonicalDefault(key) {
+  const defaults = {
+    'ai_fallback_strict': false,
+    'dedup_threshold': 0.85
+  };
+  return defaults[key];
+}

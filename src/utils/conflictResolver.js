@@ -1,3 +1,4 @@
+import { telemetryClient } from './telemetry.js';
 export const FIELD_AUTHORITY = {
   SUITEDASH: ['portal_status', 'client_billing_address', 'client_contacts'],
   DESKERA: ['tax_id', 'payment_terms', 'currency', 'invoice_balance'],
@@ -51,6 +52,8 @@ export function resolveConflict(existingRecord, incomingRecord, sourceSystem) {
 
   // Preserve updated_at if appropriate
   resolved.updated_at = new Date().toISOString();
+
+  telemetryClient.recordMetric('conflict.resolution.decisions', 1, { sourceSystem });
 
   return resolved;
 }

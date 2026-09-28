@@ -1,3 +1,4 @@
+import { telemetryClient } from './telemetry.js';
 import { resolveConflict } from "./conflictResolver.js";
 import { logTelemetry, logToRecovery } from './telemetry.js';
 
@@ -229,6 +230,8 @@ export async function enrichRecord(env, ctx, record, pipelineConfig = null) {
   }
 
   result._lineage.processing_time_ms += (Date.now() - startTime);
+  telemetryClient.recordMetric('enrichment.execution.duration_ms', result._lineage.processing_time_ms);
+  telemetryClient.recordMetric('enrichment.match.rate', 1);
 
   if (env && env.CRM_BRIDGE_ROUTING_RULES && ctx && ctx.waitUntil) {
     const latency = result._lineage.processing_time_ms;
