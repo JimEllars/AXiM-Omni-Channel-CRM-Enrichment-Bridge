@@ -1,13 +1,33 @@
 import React, { useState } from 'react';
 import SafeIcon from '../common/SafeIcon';
-import { FiActivity, FiClock, FiTerminal, FiSearch, FiFilter } from 'react-icons/fi';
+import { FiActivity, FiClock, FiTerminal, FiSearch, FiFilter, FiRefreshCw } from 'react-icons/fi';
+import { apiFetch } from '../utils/api';
+import { getMetrics } from '../utils/telemetry';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function Monitoring({ logs }) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const res = await apiFetch('/api/health');
+      if (!res || !res.ok) {
+         console.warn("Health endpoint unavailable, using mock local data.");
+         getMetrics();
+      }
+    } catch (e) {
+      console.warn("Health endpoint offline, using mock local data.", e);
+      getMetrics();
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  };
   const [filter, setFilter] = useState('ALL');
 
-  const filteredLogs = logs.filter(log => {
+  const filteredLogs = (logs || []).filter(log => {
+    if (!log || !log.msg || !log.type) return false;
     const matchesSearch = log.msg.toLowerCase().includes(searchTerm.toLowerCase()) || 
                          log.type.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesFilter = filter === 'ALL' || log.severity === filter;
@@ -72,6 +92,12 @@ export default function Monitoring({ logs }) {
         </h3>
         
         <div className="flex w-full md:w-auto gap-2">
+          <button
+            onClick={handleRefresh}
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all border border-slate-700"
+          >
+            <SafeIcon icon={FiRefreshCw} className={isRefreshing ? "animate-spin" : ""} /> Refresh Pulse
+          </button>
           <div className="relative flex-1 md:w-64">
             <SafeIcon icon={FiSearch} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs" />
             <input 

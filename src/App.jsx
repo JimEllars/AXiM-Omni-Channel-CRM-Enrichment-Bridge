@@ -20,7 +20,13 @@ import { FiCode, FiActivity, FiLayout, FiShield, FiRefreshCw, FiSettings, FiShuf
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(() => {
+    return localStorage.getItem('axim_bridge_active_tab') || 'dashboard';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('axim_bridge_active_tab', activeTab);
+  }, [activeTab]);
   const [logs, setLogs] = useState([]);
   const [activeRules, setActiveRules] = useState({});
   const [stats, setStats] = useState({ total: 0, passed: 0, dropped: 0 });
