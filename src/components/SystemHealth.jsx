@@ -5,6 +5,7 @@ import { FiServer, FiGlobe, FiCpu, FiHardDrive, FiCheckCircle, FiAlertCircle, Fi
 import { motion } from 'framer-motion';
 import { configService } from '../services/configService';
 import { logService } from '../services/logService';
+import { telemetryClient, getMetrics } from '../utils/telemetry';
 
 export default function SystemHealth() {
   const [regions, setRegions] = useState([]);
@@ -49,12 +50,16 @@ export default function SystemHealth() {
             'X-AXiM-Internal-Auth': sessionStorage.getItem('AXIM_AUTH_KEY') || ''
           }
         });
-        if (analyticsRes.ok) {
+        if (analyticsRes && analyticsRes.ok) {
           const data = await analyticsRes.json();
           setAnalyticsData(data);
+        } else {
+          console.warn('Analytics network fetch failed or invalid, using fallback metrics.');
+          setAnalyticsData(getMetrics());
         }
       } catch (e) {
-        console.error('Failed to fetch analytics telemetry:', e);
+        console.warn('Failed to fetch analytics telemetry, using fallback metrics:', e);
+        setAnalyticsData(getMetrics());
       }
 
       const logs = await logService.getAll();

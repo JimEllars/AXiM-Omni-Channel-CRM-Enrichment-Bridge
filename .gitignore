@@ -31,3 +31,8 @@ submit.py
 dummy.js
 dummy.py
 __pycache__/
+
+*.patch
+patch_*.cjs
+patch_*.js
+*.tmp
