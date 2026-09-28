@@ -20,7 +20,18 @@ export const configService = {
       return localVal;
     }
 
-    // 3. Fallback to Google Sheets (or could be KV read if available)
+    // 3. Cloudflare KV Primary Source
+    try {
+      const kvVal = await storage.getAsync(`config_${key}`, null);
+      if (kvVal !== null) {
+        memCache.set(key, kvVal);
+        return kvVal;
+      }
+    } catch (err) {
+      console.warn('KV read failed, falling back to Sheets', err);
+    }
+
+    // 4. Fallback to Google Sheets
     try {
         await ensureTab(TAB, HEADERS);
         const rowIndex = await findRowIndexById(TAB, key);

@@ -1,6 +1,6 @@
 import React from 'react';
 import { logService } from '../services/logService';
-import { telemetryClient as telemetry } from '../utils/telemetry';
+import { telemetry } from '../utils/telemetry';
 
 export class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -13,7 +13,8 @@ export class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    logService.logException(error, errorInfo);
+    logService.error('Unhandled UI Exception', { error: error.message, stack: errorInfo.componentStack });
+    telemetry.recordMetric('ui_crash', 1);
     telemetry.recordMetric('ui.unhandled_error', 1, { component: errorInfo.componentStack?.slice(0, 50) });
   }
 

@@ -6,6 +6,7 @@ import { telemetryClient } from '../src/utils/telemetry.js';
 vi.mock('../src/utils/telemetry.js', () => ({
   telemetryClient: {
     recordSpan: vi.fn(),
+    startSpan: vi.fn().mockReturnValue({ end: vi.fn() }),
     recordMetric: vi.fn(),
     recordError: vi.fn(),
   },

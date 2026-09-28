@@ -6,6 +6,8 @@ export const FIELD_AUTHORITY = {
 };
 
 export function resolveConflict(existingRecord, incomingRecord, sourceSystem) {
+  const start = Date.now();
+  let decisions = 0;
   if (!existingRecord) return incomingRecord;
 
   const resolved = { ...existingRecord };
@@ -24,6 +26,7 @@ export function resolveConflict(existingRecord, incomingRecord, sourceSystem) {
 
     if (isIncomingAuthoritative) {
       resolved[key] = incomingRecord[key];
+      decisions++;
       continue;
     }
 
@@ -42,10 +45,12 @@ export function resolveConflict(existingRecord, incomingRecord, sourceSystem) {
 
     if (incomingTime > existingTime) {
       resolved[key] = incomingRecord[key];
+      decisions++;
     } else if (incomingTime === existingTime) {
       // Tiebreak: Internal (NEXUS) wins
       if (incomingSystem === 'NEXUS') {
         resolved[key] = incomingRecord[key];
+      decisions++;
       }
     }
   }
@@ -53,7 +58,8 @@ export function resolveConflict(existingRecord, incomingRecord, sourceSystem) {
   // Preserve updated_at if appropriate
   resolved.updated_at = new Date().toISOString();
 
-  telemetryClient.recordMetric('conflict.resolution.decisions', 1, { sourceSystem });
+  telemetryClient.recordMetric('conflict.resolution.decisions', decisions, { sourceSystem });
+  telemetryClient.recordMetric('conflict.resolution.duration_ms', Date.now() - start);
 
   return resolved;
 }
