@@ -154,25 +154,35 @@ export class DeskeraAdapter {
 
     const start = Date.now();
     try {
+      telemetryClient.recordMetric('crm.deskera.fetch.start', 1);
       const response = await this._request('POST', '/v1/contact', payload, idempotencyKey);
+      const duration = Date.now() - start;
 
       telemetryClient.recordMetric('deskera.sync_contact.success', 1, {
          contact_id: contactId
       });
-      telemetryClient.recordSpan('Deskera_SyncContact', Date.now() - start, {
+      telemetryClient.recordMetric('crm.deskera.fetch.duration_ms', duration);
+      telemetryClient.recordMetric('crm.deskera.records_received', 1);
+
+      telemetryClient.recordSpan('Deskera_SyncContact', duration, {
         status: response.status,
         has_id: !!canonicalContact.id
       });
 
       return await response.json();
     } catch (error) {
+      const duration = Date.now() - start;
       telemetryClient.recordMetric('deskera.sync_contact.error', 1, {
          contact_id: contactId
       });
-      telemetryClient.recordSpan('Deskera_SyncContact', Date.now() - start, {
+      telemetryClient.recordMetric('crm.deskera.fetch.error', 1);
+      telemetryClient.recordSpan('Deskera_SyncContact', duration, {
         error: error.message
       });
       console.error('Error syncing contact to Deskera:', error);
+
+      const { logService } = await import('../logService.js');
+      logService.error('Deskera sync failure', { error: error.message });
 
       // Route failed sync to recovery
       logToRecovery(this.env, 'DeskeraAdapter', error.message, canonicalContact);

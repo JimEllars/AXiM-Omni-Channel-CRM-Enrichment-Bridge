@@ -42,10 +42,10 @@ export default function Header() {
   }, []);
 
   return (
-    <header className="bg-slate-900 border-b border-slate-800 text-white p-4">
+    <header className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 text-white p-4 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         <div className="flex items-center space-x-3">
-          <div className="bg-blue-600 p-2 rounded-lg">
+          <div className="bg-blue-600/20 border border-blue-500/30 text-blue-400 p-2 rounded-lg">
             <SafeIcon icon={FiActivity} className="text-xl" />
           </div>
           <div>
@@ -55,13 +55,16 @@ export default function Header() {
         </div>
         <div className="flex space-x-4">
           <div className="flex items-center space-x-2 text-sm text-slate-400 min-w-[200px]">
-            <div className={`w-2 h-2 rounded-full transition-colors duration-300 ${isError ? 'bg-amber-400' : 'bg-green-400 animate-pulse'}`}></div>
-            <SafeIcon icon={FiShield} className={`transition-colors duration-300 ${isError ? 'text-amber-400' : 'text-green-400'}`} />
-            <span className="transition-all duration-300">{isError ? 'Degraded/Retrying' : `Edge Active: [${healthStatus.region}]`}</span>
+            <div className="relative flex h-3 w-3">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isError ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
+              <span className={`relative inline-flex rounded-full h-3 w-3 ${isError ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+            </div>
+            <SafeIcon icon={FiShield} className={`transition-colors duration-300 ${isError ? 'text-amber-400' : 'text-emerald-400'}`} />
+            <span className="transition-all duration-300 font-medium">{isError ? 'Degraded/Retrying' : `Edge Active: [${healthStatus.region}]`}</span>
           </div>
-          <div className="flex items-center space-x-2 text-sm text-slate-400 min-w-[150px]">
-            <SafeIcon icon={FiDatabase} className="text-blue-400" />
-            <span>KV Store Syncing</span>
+          <div className="flex items-center space-x-2 text-sm text-slate-400 min-w-[150px] bg-slate-800/50 px-3 py-1.5 rounded-full border border-slate-700/50">
+            <SafeIcon icon={FiDatabase} className="text-blue-400 animate-pulse" />
+            <span className="text-xs font-semibold uppercase tracking-wider">KV Syncing</span>
           </div>
         </div>
       </div>
