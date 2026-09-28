@@ -102,6 +102,7 @@ async function thirdPartyEnrichment(env, ctx, provider, data) {
 }
 
 export async function enrichRecord(env, ctx, record, pipelineConfig = null) {
+  const functionStartTime = Date.now();
   const startTime = Date.now();
   record._lineage = record._lineage || { processing_time_ms: 0, ai_provider: 'none', rules_applied: [] };
   let result = {

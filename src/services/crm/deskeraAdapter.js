@@ -1,4 +1,5 @@
-import { telemetryClient, logToRecovery } from '../../utils/telemetry.js';
+import { telemetryClient, logToRecovery, telemetry } from '../../utils/telemetry.js';
+import { logService } from '../logService.js';
 import { resolveConflict } from '../../utils/conflictResolver.js';
 import { normalizeToCanonical } from '../../models/canonicalSchema.js';
 
@@ -84,7 +85,7 @@ export class DeskeraAdapter {
     try {
       const response = await fetch(`${this.baseUrl}${endpoint}`, options);
 
-      telemetryClient.recordSpan(`Deskera_${method}`, Date.now() - start, {
+      telemetryClient.recordSpan('crm_fetch', Date.now() - start, {
         endpoint,
         status: response.status
       });
@@ -114,6 +115,7 @@ export class DeskeraAdapter {
             return this._request(method, endpoint, body, idempotencyKey, attempt + 1);
         }
       telemetryClient.recordError({ context: `Deskera_${method}`, endpoint }, error);
+      logService.error('Deskera sync failure', { error: error.message, endpoint });
       throw error;
     }
   }
@@ -152,6 +154,7 @@ export class DeskeraAdapter {
 
     const payload = this.fromCanonical(canonicalContact);
 
+    const span = telemetryClient.startSpan('crm_fetch', { adapter: 'deskera', endpoint: '/v1/contact' });
     const start = Date.now();
     try {
       telemetryClient.recordMetric('crm.deskera.fetch.start', 1);
@@ -168,6 +171,7 @@ export class DeskeraAdapter {
         status: response.status,
         has_id: !!canonicalContact.id
       });
+      span.end({ status: response.status, record_count: 1 });
 
       return await response.json();
     } catch (error) {
@@ -181,8 +185,8 @@ export class DeskeraAdapter {
       });
       console.error('Error syncing contact to Deskera:', error);
 
-      const { logService } = await import('../logService.js');
-      logService.error('Deskera sync failure', { error: error.message });
+      span.end({ error: error.message });
+      logService.error('Deskera sync failure', { error: error.message, adapter: 'deskera' });
 
       // Route failed sync to recovery
       logToRecovery(this.env, 'DeskeraAdapter', error.message, canonicalContact);

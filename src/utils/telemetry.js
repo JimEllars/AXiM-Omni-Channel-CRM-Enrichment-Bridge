@@ -49,6 +49,15 @@ class ObservabilityClient {
     });
   }
 
+  startSpan(operationName, metadata = {}) {
+    const start = Date.now();
+    return {
+      end: (endMetadata = {}) => {
+        this.recordSpan(operationName, Date.now() - start, { ...metadata, ...endMetadata });
+      }
+    };
+  }
+
   recordSpan(operationName, durationMs, metadata = {}) {
     this._enqueue({
       type: 'span',
@@ -127,6 +136,7 @@ class ObservabilityClient {
 }
 
 export const telemetryClient = new ObservabilityClient();
+export const telemetry = telemetryClient;
 
 export async function logTelemetry(env, payloadOrEventType, severity, message) {
   let payload;

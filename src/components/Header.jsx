@@ -62,7 +62,7 @@ export default function Header() {
             <SafeIcon icon={FiShield} className={`transition-colors duration-300 ${isError ? 'text-amber-400' : 'text-emerald-400'}`} />
             <span className="transition-all duration-300 font-medium">{isError ? 'Degraded/Retrying' : `Edge Active: [${healthStatus.region}]`}</span>
           </div>
-          <div className="flex items-center space-x-2 text-sm text-slate-400 min-w-[150px] bg-slate-800/50 px-3 py-1.5 rounded-full border border-slate-700/50">
+          <div className="flex items-center space-x-2 text-sm text-slate-400 min-w-[150px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-full">
             <SafeIcon icon={FiDatabase} className="text-blue-400 animate-pulse" />
             <span className="text-xs font-semibold uppercase tracking-wider">KV Syncing</span>
           </div>

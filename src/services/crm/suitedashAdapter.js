@@ -1,4 +1,5 @@
-import { telemetryClient, logToRecovery } from '../../utils/telemetry.js';
+import { telemetryClient, logToRecovery, telemetry } from '../../utils/telemetry.js';
+import { logService } from '../logService.js';
 import { resolveConflict } from '../../utils/conflictResolver.js';
 import { normalizeToCanonical } from '../../models/canonicalSchema.js';
 
@@ -52,7 +53,7 @@ export class SuiteDashAdapter {
     try {
       const response = await fetch(`${this.baseUrl}${endpoint}`, options);
 
-      telemetryClient.recordSpan(`SuiteDash_${method}`, Date.now() - start, {
+      telemetryClient.recordSpan('crm_fetch', Date.now() - start, {
         endpoint,
         status: response.status
       });
@@ -82,6 +83,7 @@ export class SuiteDashAdapter {
           return this._request(method, endpoint, body, idempotencyKey, attempt + 1);
       }
       telemetryClient.recordError({ context: `SuiteDash_${method}`, endpoint }, error);
+      logService.error('SuiteDash sync failure', { error: error.message, endpoint });
       throw error;
     }
   }
@@ -153,6 +155,7 @@ export class SuiteDashAdapter {
     const start = Date.now();
     try {
       telemetryClient.recordMetric('crm.suitedash.fetch.start', 1);
+      const span = telemetryClient.startSpan('crm_fetch', { adapter: 'suitedash' });
       if (externalId) {
         const putRes = await this._request('PUT', `/contact/${encodeURIComponent(externalId)}`, payload, idempotencyKey);
         const duration = Date.now() - start;
@@ -162,12 +165,14 @@ export class SuiteDashAdapter {
         if (putRes.ok) {
           telemetryClient.recordMetric('suitedash.sync_contact.update.success', 1, { externalId });
           telemetryClient.recordSpan('SuiteDash_SyncContact_Update', duration, { status: putRes.status });
+          span.end({ status: putRes.status, record_count: 1 });
           return await putRes.json();
         } else if (putRes.status === 404) {
           const postRes = await this._request('POST', '/contact', payload, idempotencyKey);
           if (postRes.ok) {
              telemetryClient.recordMetric('suitedash.sync_contact.create.success', 1, { fallback: true });
              telemetryClient.recordSpan('SuiteDash_SyncContact_CreateFallback', duration, { status: postRes.status });
+             span.end({ status: postRes.status, record_count: 1 });
              return await postRes.json();
           }
           throw new Error(`Failed to create contact after 404 fallback: ${postRes.status}`);
@@ -183,6 +188,7 @@ export class SuiteDashAdapter {
         if (postRes.ok) {
            telemetryClient.recordMetric('suitedash.sync_contact.create.success', 1, { externalId: 'none' });
            telemetryClient.recordSpan('SuiteDash_SyncContact_Create', duration, { status: postRes.status });
+           span.end({ status: postRes.status, record_count: 1 });
            return await postRes.json();
         }
         throw new Error(`Failed to create contact: ${postRes.status}`);
@@ -193,10 +199,10 @@ export class SuiteDashAdapter {
       });
       telemetryClient.recordMetric('crm.suitedash.fetch.error', 1);
       telemetryClient.recordError({ context: 'SuiteDash_SyncContact' }, error);
+
       console.error('Error syncing contact to SuiteDash:', error);
 
-      const { logService } = await import('../logService.js');
-      logService.error('SuiteDash sync failure', { error: error.message });
+      logService.error('SuiteDash sync failure', { error: error.message, adapter: 'suitedash' });
 
       logToRecovery(this.env, 'SuiteDashAdapter', error.message, canonicalContact);
 
