@@ -1543,11 +1543,21 @@ export default {
 
     return new Response('Endpoint Not Found', { status: 404 });
 
-  }
-,
+  },
 
   // SCHEDULED: Cron Trigger Handler for Database Sweeps
   async scheduled(event, env, ctx) {
+    if (event.cron === "0 0 * * *") {
+        const { nexusService } = await import("./services/nexusService.js");
+        ctx.waitUntil(nexusService.runDailyEnrichmentSweep(env, ctx));
+    }
+    if (event.cron === "*/15 * * * *") {
+        const { recoveryService } = await import("./services/recoveryService.js");
+        if (recoveryService.processDlq) {
+           ctx.waitUntil(recoveryService.processDlq(env, ctx));
+        }
+    }
+
 
     // Phase 1: Disaster Recovery Archiving
     ctx.waitUntil((async () => {
@@ -2273,7 +2283,4 @@ async function processAndDispatch(env, source, records, ctx, activePipeline = nu
       }
     }));
   }
-}
-
-
-// --- SCHEDULED HANDLERS ---
+};
