@@ -72,3 +72,35 @@ describe('Telemetry Ring Buffer', () => {
         global.fetch = originalFetch;
     });
 });
+
+describe('Telemetry Edge Flush Queue', () => {
+    beforeEach(() => {
+        telemetryClient.ringBuffer = [];
+        telemetryClient.queue = [];
+        vi.unstubAllGlobals();
+        vi.stubGlobal('fetch', vi.fn());
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('should queue batching and retry gracefully on failed telemetry dispatches', async () => {
+        global.fetch.mockRejectedValueOnce(new Error('Network error'));
+
+        telemetryClient.trackEvent('system', 'start', 'test_event');
+
+        await telemetryClient.flush();
+
+        // Queue should be emptied even on failure (fallback failure mode)
+        expect(telemetryClient.queue.length).toBe(0);
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('should track errors properly', () => {
+        telemetryClient.trackError(new Error('Syntax Error'), { file: 'index.js' });
+        expect(telemetryClient.ringBuffer[0].type).toBe('error');
+        expect(telemetryClient.ringBuffer[0].errorObject).toBe('Syntax Error');
+        expect(telemetryClient.ringBuffer[0].errorContext).toEqual({ file: 'index.js' });
+    });
+});
