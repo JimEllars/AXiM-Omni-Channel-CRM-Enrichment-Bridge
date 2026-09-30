@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import SafeIcon from '../common/SafeIcon';
+import ErrorBoundary from './ErrorBoundary';
 import { FiCheckCircle, FiAlertCircle, FiServer, FiRefreshCw, FiDownload, FiGlobe, FiDatabase, FiCloud } from 'react-icons/fi';
 import { apiFetch } from '../utils/api';
 import { getMetrics } from '../utils/telemetry';
@@ -128,6 +129,7 @@ export default function SystemHealth() {
         </div>
       )}
 
+      <ErrorBoundary>
       {loadingAnalytics ? (
         <div className="h-32 flex items-center justify-center bg-slate-900/50 rounded-xl border border-slate-800">
            <div className="animate-pulse text-slate-500 text-sm font-bold tracking-widest uppercase">Loading Telemetry...</div>
@@ -200,6 +202,8 @@ export default function SystemHealth() {
           )}
         </>
       )}
+
+      </ErrorBoundary>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {metrics.map((m, i) => (

@@ -4,6 +4,7 @@ import { FiActivity, FiClock, FiTerminal, FiSearch, FiFilter, FiRefreshCw } from
 import { apiFetch } from '../utils/api';
 import { getMetrics } from '../utils/telemetry';
 import { motion, AnimatePresence } from 'framer-motion';
+import ErrorBoundary from './ErrorBoundary';
 
 export default function Monitoring({ logs }) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -84,6 +85,7 @@ export default function Monitoring({ logs }) {
   };
 
   return (
+    <ErrorBoundary>
     <div className="bg-slate-900/50 rounded-xl border border-slate-800 overflow-hidden shadow-2xl">
       <div className="px-6 py-4 border-b border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-800/20">
         <h3 className="text-white font-medium flex items-center gap-2">
@@ -186,5 +188,6 @@ export default function Monitoring({ logs }) {
         </span>
       </div>
     </div>
+    </ErrorBoundary>
   );
 }

@@ -22,7 +22,7 @@ class ObservabilityClient {
       ...event,
       timestamp: new Date(timestamp).toISOString(),
       timestampMs: timestamp,
-      idempotency_key: `evt_crm_${crypto.randomUUID()}`
+      idempotency_key: `evt_crm_${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2)}`
     };
 
     this.queue.push(eventObj);
@@ -75,6 +75,10 @@ class ObservabilityClient {
     });
   }
 
+  trackError(error, context = {}) {
+    this.recordError(context, error);
+  }
+
   recordEvent(eventType, message, severity = 'INFO', metadata = {}) {
       this._enqueue({
           type: 'event',
@@ -83,6 +87,10 @@ class ObservabilityClient {
           message,
           ...metadata
       });
+  }
+
+  trackEvent(category, action, label = '', metadata = {}) {
+    this.recordEvent(`${category}_${action}`, label, 'INFO', metadata);
   }
 
   getRecentMetrics(limit = 50) {
@@ -121,13 +129,29 @@ class ObservabilityClient {
     }
 
     try {
-      const endpoint = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TELEMETRY_ENDPOINT) || '/api/telemetry';
+      let endpoint = '/api/telemetry';
+      try {
+        endpoint = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TELEMETRY_ENDPOINT) || '/api/telemetry';
+      } catch (e) { /* ignore */ }
+
+      const payload = JSON.stringify({ events: batch });
+
+      // Prefer navigator.sendBeacon if available (browser)
+      if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+        // Blob for sendBeacon to allow json type
+        const blob = new Blob([payload], { type: 'application/json' });
+        const success = navigator.sendBeacon(endpoint, blob);
+        if (success) return;
+      }
+
+      // Fallback to fetch
       await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ events: batch })
+        body: payload,
+        keepalive: true
       }).catch(err => console.warn('Telemetry flush failed quietly:', err));
     } catch (error) {
       console.warn('Telemetry delivery failed quietly:', error);
@@ -153,8 +177,6 @@ export async function logTelemetry(env, payloadOrEventType, severity, message) {
 
   telemetryClient.recordEvent(eventTypeStr, messageStr, severityStr);
 
-  // In a Worker env, we don't have direct access to telemetryClient's fetch logic easily
-  // if it requires meta.env, so we might want to also push to the central AXiM ingest.
   if (env && env.AXIM_INTERNAL_KEY) {
       try {
           const apiPayload = payload || {
@@ -162,7 +184,7 @@ export async function logTelemetry(env, payloadOrEventType, severity, message) {
               project_id: "AXIM_CRM_BRIDGE",
               environment: env?.ENVIRONMENT || "production",
               timestamp: new Date().toISOString(),
-              idempotency_key: `evt_crm_${crypto.randomUUID()}`
+              idempotency_key: `evt_crm_${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2)}`
             },
             event_payload: {
               event_type: eventTypeStr,
